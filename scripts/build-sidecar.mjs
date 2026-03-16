@@ -63,9 +63,14 @@ rmSync(join(workerRoot, "build"), { recursive: true, force: true });
 rmSync(join(workerRoot, "dist"), { recursive: true, force: true });
 
 run(python, ["-m", "pip", "install", "pyinstaller"], { cwd: workerRoot });
+const pyInstallerArgs = ["-m", "PyInstaller", "--noconfirm", "--clean", "--onefile"];
+if (isWindows) {
+  pyInstallerArgs.push("--noconsole");
+}
+pyInstallerArgs.push("--name", "px-worker", "px_receiver/__main__.py");
 run(
   python,
-  ["-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--name", "px-worker", "px_receiver/__main__.py"],
+  pyInstallerArgs,
   { cwd: workerRoot },
 );
 

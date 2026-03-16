@@ -54,7 +54,7 @@ class MockBackendClient(BackendClient):
             JobRecord(
                 id="job-1001",
                 order_id="PX-5001",
-                source="photo_zone",
+                source="mock",
                 product_name="A1 Poster",
                 printer="Fuji Lab",
                 customer_name="Sarah Turner",
@@ -81,7 +81,7 @@ class MockBackendClient(BackendClient):
             JobRecord(
                 id="job-1002",
                 order_id="PX-5002",
-                source="photo_zone",
+                source="mock",
                 product_name="Window Vinyl",
                 printer="Large Format",
                 customer_name="Chris Patel",

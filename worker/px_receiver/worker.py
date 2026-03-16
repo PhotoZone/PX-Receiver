@@ -29,6 +29,7 @@ class WorkerRuntime:
         self.settings = load_settings(config_path)
         self.local_state = LocalState.load(self.paths["state"])
         hydrated_jobs = self.reconcile_hydrated_jobs(self.local_state.hydrate_jobs())
+        hydrated_jobs = self.purge_mock_jobs(hydrated_jobs, persist_changes=True)
         self.snapshot = WorkerSnapshot(
             health=HealthState.OFFLINE,
             polling_paused=False,
@@ -61,6 +62,27 @@ class WorkerRuntime:
             on_status=self.handle_scanner_status,
             on_log=self.emit_log,
         )
+
+    def is_mock_job(self, job: JobRecord) -> bool:
+        return job.source == "mock" or job.id in {"job-1001", "job-1002"}
+
+    def purge_mock_jobs(self, jobs: list[JobRecord], *, persist_changes: bool) -> list[JobRecord]:
+        if self.settings.use_mock_backend:
+            return jobs
+
+        filtered_jobs = [job for job in jobs if not self.is_mock_job(job)]
+        if not persist_changes or len(filtered_jobs) == len(jobs):
+            return filtered_jobs
+
+        self.local_state.jobs = []
+        for job in filtered_jobs:
+            self.local_state.remember_job(job)
+        for job_id in ["job-1001", "job-1002"]:
+            self.local_state.processed_jobs.pop(job_id, None)
+            self.local_state.retries.pop(job_id, None)
+            self.local_state.clear_inflight(job_id)
+        self.local_state.save(self.paths["state"])
+        return filtered_jobs
 
     def reconcile_hydrated_jobs(self, jobs: list[JobRecord]) -> list[JobRecord]:
         reconciled: list[JobRecord] = []
@@ -347,6 +369,7 @@ class WorkerRuntime:
             return
 
         if name == "update_settings":
+            was_using_mock_backend = self.settings.use_mock_backend
             payload = command.get("settings", {})
             self.settings = WorkerSettings(
                 backend_url=payload.get("backendUrl", self.settings.backend_url),
@@ -367,6 +390,11 @@ class WorkerRuntime:
             self.snapshot.settings = self.settings
             self.configure_backend()
             save_settings(self.config_path, self.settings)
+            if was_using_mock_backend and not self.settings.use_mock_backend:
+                self.snapshot.jobs = self.purge_mock_jobs(self.snapshot.jobs, persist_changes=True)
+                self.snapshot.queue_count = sum(
+                    1 for item in self.snapshot.jobs if item.status in {JobStatus.PENDING, JobStatus.DOWNLOADING, JobStatus.DOWNLOADED, JobStatus.PROCESSING}
+                )
             self.next_poll_at = 0.0
             self.emit_log(LogLevel.INFO, "Worker settings updated", "config")
             self.emit_snapshot()
