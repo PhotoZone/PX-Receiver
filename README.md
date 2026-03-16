@@ -173,6 +173,18 @@ The workflow builds:
 - macOS on `macos-14`, uploading `.app` and `.dmg` artifacts
 - Windows on `windows-2022`, uploading `.msi` and NSIS `.exe` artifacts
 
+When triggered by a tag like `v0.1.0`, the workflow also publishes stable GitHub Release assets:
+
+- `PX-Receiver-macOS.dmg`
+- `PX-Receiver-Windows-x64.msi`
+- `PX-Receiver-Windows-x64-setup.exe`
+
+That makes these permanent latest-version links usable from PX:
+
+- `https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-macOS.dmg`
+- `https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-Windows-x64.msi`
+- `https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-Windows-x64-setup.exe`
+
 ## Platform Notes
 
 ### macOS
