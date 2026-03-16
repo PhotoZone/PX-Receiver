@@ -10,6 +10,10 @@ worker/dist
 worker/build
 worker/.pytest_cache
 worker/.mypy_cache
+.codex
+*.tsbuildinfo
+*.spec
+*.egg-info
 *.pyc
 __pycache__
 .DS_Store
