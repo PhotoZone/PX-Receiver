@@ -1,8 +1,5 @@
 name: Build Desktop
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   workflow_dispatch:
   push:
@@ -119,12 +116,27 @@ jobs:
           if-no-files-found: error
           path: ${{ matrix.artifact_path }}
 
+      - name: Ensure GitHub release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "${{ steps.release_meta.outputs.tag }}" >/dev/null 2>&1; then
+            gh release create "${{ steps.release_meta.outputs.tag }}" \
+              --target "${{ github.sha }}" \
+              --title "${{ steps.release_meta.outputs.name }}" \
+              --generate-notes
+          fi
+
       - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.release_meta.outputs.tag }}
-          name: ${{ steps.release_meta.outputs.name }}
-          target_commitish: ${{ github.sha }}
-          prerelease: ${{ steps.release_meta.outputs.prerelease }}
-          files: ${{ matrix.release_files }}
-          generate_release_notes: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              gh release upload "${{ steps.release_meta.outputs.tag }}" "$file" --clobber
+            fi
+          done <<'EOF'
+          ${{ matrix.release_files }}
+          EOF
