@@ -13,3 +13,12 @@ git add .
 git commit -m "Initial PX Receiver"
 git push -u origin main
 '''
+
+[[actions]]
+name = "GitHub"
+icon = "tool"
+command = '''
+git add .
+git commit -m "Auto-publish releases on push"
+git push
+'''
