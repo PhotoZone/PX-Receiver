@@ -584,11 +584,17 @@ fn bundled_worker_binary_name() -> &'static str {
 
 fn bundled_worker_binary_candidates(app: &AppHandle) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+    let candidate_names: Vec<&str> = if cfg!(target_os = "windows") {
+        vec!["px-worker.exe", "px-worker", bundled_worker_binary_name()]
+    } else {
+        vec!["px-worker", bundled_worker_binary_name()]
+    };
 
     if let Ok(current_exe) = env::current_exe() {
         if let Some(parent) = current_exe.parent() {
-            candidates.push(parent.join("px-worker"));
-            candidates.push(parent.join(bundled_worker_binary_name()));
+            for name in &candidate_names {
+                candidates.push(parent.join(name));
+            }
         }
     }
 
@@ -596,8 +602,9 @@ fn bundled_worker_binary_candidates(app: &AppHandle) -> Vec<PathBuf> {
         .path()
         .resource_dir()
         .unwrap_or_else(|_| PathBuf::from("."));
-    candidates.push(sidecar_root.join("px-worker"));
-    candidates.push(sidecar_root.join(bundled_worker_binary_name()));
+    for name in &candidate_names {
+        candidates.push(sidecar_root.join(name));
+    }
     candidates
 }
 
