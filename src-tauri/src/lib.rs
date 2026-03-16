@@ -190,15 +190,27 @@ fn update_worker_settings(
     state: State<'_, RuntimeState>,
     settings: WorkerSettings,
 ) -> Result<WorkerSnapshot, String> {
-    state.with_worker(|worker| {
+    let mut store = state.store.lock().map_err(|err| err.to_string())?;
+    store.snapshot.settings = settings.clone();
+    store.persist_settings().map_err(|err| err.to_string())?;
+    drop(store);
+
+    let _ = state.with_worker(|worker| {
         worker
             .update_settings(settings.clone())
             .map_err(|err| err.to_string())
-    })?;
+    });
 
     let mut store = state.store.lock().map_err(|err| err.to_string())?;
-    store.snapshot.settings = settings;
-    store.persist_settings().map_err(|err| err.to_string())?;
+    if state
+        .worker
+        .lock()
+        .map_err(|err| err.to_string())?
+        .is_none()
+    {
+        store.snapshot.current_activity =
+            "Settings saved. Restart worker to apply them.".to_string();
+    }
     Ok(store.snapshot.clone())
 }
 

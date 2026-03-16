@@ -11,6 +11,12 @@ use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
 use uuid::Uuid;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Error)]
 pub enum WorkerError {
     #[error("io error: {0}")]
@@ -557,6 +563,8 @@ fn worker_launch_command(app: &AppHandle, config_path: &Path) -> Command {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
     command
 }
 
