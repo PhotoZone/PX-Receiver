@@ -1,0 +1,19 @@
+{
+  "name": "px-receiver",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/desktop run dev",
+    "build:web": "npm --workspace apps/desktop run build",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "lint:web": "npm --workspace apps/desktop run lint",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

@@ -1,0 +1,24 @@
+[package]
+name = "px_receiver"
+version = "0.1.0"
+description = "PX receiver desktop agent"
+authors = ["Codex"]
+edition = "2021"
+
+[lib]
+name = "px_receiver_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.3", features = [] }
+
+[dependencies]
+base64 = "0.22.1"
+chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rfd = "0.15.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.1.1", features = ["tray-icon"] }
+thiserror = "2.0.9"
+uuid = { version = "1.11.0", features = ["v4", "serde"] }

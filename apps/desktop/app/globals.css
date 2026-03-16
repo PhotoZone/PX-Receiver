@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --pz-pill-radius: 0.56rem;
+  --pz-pill-height: 27px;
+  --pz-pill-padding-x: 0.58rem;
+  --pz-pill-border: 1px solid rgba(15, 23, 42, 0.14);
+  --pz-pill-bg: #ffffff;
+  --pz-pill-fg: #334155;
+  --pz-pill-font-size: 0.77rem;
+  --pz-pill-font-weight: 700;
+}
+
+body {
+  @apply min-h-screen bg-mist text-ink antialiased;
+  font-family: var(--font-sans), "Segoe UI", sans-serif;
+  background-image:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 30%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f6 100%);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+.crm-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pz-pill-height);
+  padding: 0 var(--pz-pill-padding-x);
+  border: var(--pz-pill-border);
+  border-radius: var(--pz-pill-radius);
+  background: var(--pz-pill-bg);
+  color: var(--pz-pill-fg);
+  font-size: var(--pz-pill-font-size);
+  font-weight: var(--pz-pill-font-weight);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.crm-pill--finish {
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.3);
+  color: #0f766e;
+}
+
+.crm-pill--border {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(248, 250, 252, 0.98);
+  color: #475569;
+}

@@ -1,0 +1,35 @@
+import type { WorkerSnapshot } from "@/types/app";
+
+export const defaultSnapshot: WorkerSnapshot = {
+  health: "offline",
+  pollingPaused: false,
+  queueCount: 0,
+  lastSyncAt: null,
+  activeJobId: null,
+  currentActivity: "Starting worker",
+  settings: {
+    backendUrl: "https://backend.example.com",
+    machineId: "machine-demo-001",
+    machineName: "PX Receiver 01",
+    apiToken: "",
+    machineAuthToken: "",
+    pollingIntervalSeconds: 20,
+    downloadDirectory: "~/Downloads/px-orders",
+    hotFolderPath: "~/HotFolders/px",
+    photoPrintHotFolderPath: "//PICSERVER/C8Spool",
+    photoGiftHotFolderPath: "~/HotFolders/Sublimation",
+    largeFormatHotFolderPath: "~/HotFolders/Large Format",
+    packingSlipPrinterName: "",
+    shippingLabelPrinterName: "",
+    useMockBackend: true,
+  },
+  scanner: {
+    status: "disabled",
+    port: null,
+    lastScanAt: null,
+    lastCode: null,
+    recentScans: [],
+  },
+  jobs: [],
+  logs: [],
+};
