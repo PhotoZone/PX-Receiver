@@ -271,6 +271,15 @@ class WorkerRuntime:
         self.snapshot.scanner.port = port
         self.emit_scanner_status()
 
+    def should_print_shipping_label_for_scan(self, job: JobRecord) -> bool:
+        source = str(job.source or "").strip().casefold()
+        delivery_method = str(job.delivery_method or "").strip().casefold()
+
+        if source == "wink":
+            return "home delivery" in delivery_method
+
+        return True
+
     def find_job_for_scan(self, code: str) -> JobRecord | None:
         normalized = str(code or "").strip()
         if not normalized:
@@ -308,7 +317,11 @@ class WorkerRuntime:
             code=code,
             source=source,
             status="matched",
-            message=f"Matched {matched_job.order_id}; requesting label.",
+            message=(
+                f"Matched {matched_job.order_id}; requesting label."
+                if self.should_print_shipping_label_for_scan(matched_job)
+                else f"Matched {matched_job.order_id}; marking completed."
+            ),
         )
         self.emit_log(LogLevel.INFO, f"Barcode scanned: {code}", "scanner")
         self.emit_scan(scan)
@@ -321,7 +334,11 @@ class WorkerRuntime:
                 "machine_id": self.settings.machine_id,
             },
         )
-        self.print_shipping_label(matched_job.id)
+        if self.should_print_shipping_label_for_scan(matched_job):
+            self.print_shipping_label(matched_job.id)
+            return
+
+        self.complete_job_from_scan(matched_job.id)
 
     def register(self) -> None:
         try:
@@ -1027,6 +1044,40 @@ class WorkerRuntime:
             self.emit_log(LogLevel.INFO, f"Job {job_id} marked completed from desktop UI", "control")
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Force complete failed for {job_id}: {exc}", "control")
+
+    def complete_job_from_scan(self, job_id: str) -> None:
+        job = next((item for item in self.snapshot.jobs if item.id == job_id), None)
+        if job is None:
+            self.emit_log(LogLevel.WARNING, f"Scan completion requested for unknown job {job_id}", "scanner")
+            return
+
+        self.emit_log(LogLevel.INFO, f"Completing {job_id} from barcode scan", "scanner")
+
+        try:
+            completed_job = self.update_job_state(
+                job,
+                JobStatus.COMPLETED,
+                local_path=job.local_path,
+                local_paths=job.local_paths,
+                assets=job.assets,
+                last_error=None,
+            )
+            self.safe_backend_update_job_status(job.id, JobStatus.COMPLETED, "Completed from barcode scan")
+            self.safe_backend_report_job_event(
+                job_id,
+                "scan_completed",
+                {
+                    "completed_at": now_iso(),
+                    "machine_id": self.settings.machine_id,
+                    "resolution": "barcode_scan_completed",
+                },
+            )
+            self.local_state.processed_jobs[job.id] = completed_job.local_path or completed_job.order_id
+            self.retry_queue.discard(job.id)
+            self.local_state.save(self.paths["state"])
+            self.emit_log(LogLevel.INFO, f"Job {job_id} marked completed from barcode scan", "scanner")
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(LogLevel.ERROR, f"Barcode completion failed for {job_id}: {exc}", "scanner")
 
     def run(self) -> None:
         self.start_command_listener()
