@@ -64,9 +64,9 @@ rmSync(join(workerRoot, "dist"), { recursive: true, force: true });
 
 run(python, ["-m", "pip", "install", "pyinstaller"], { cwd: workerRoot });
 const pyInstallerArgs = ["-m", "PyInstaller", "--noconfirm", "--clean", "--onefile"];
-if (isWindows) {
-  pyInstallerArgs.push("--noconsole");
-}
+// Keep stdio attached on Windows: the Tauri host reads worker events from
+// stdout/stderr, and CREATE_NO_WINDOW on the Rust side already suppresses the
+// visible console window for packaged builds.
 pyInstallerArgs.push("--name", "px-worker", "px_receiver/__main__.py");
 run(
   python,

@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { defaultSnapshot } from "@/lib/defaults";
-import { forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, recoverRemoteJob, reprintJob, relaunchApp, restartWorker, resumePolling, retryJob, updateSettings } from "@/lib/tauri";
-import type { JobRecord, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
+import { checkForAppUpdate, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, recoverRemoteJob, reprintJob, relaunchApp, restartWorker, resumePolling, retryJob, updateSettings } from "@/lib/tauri";
+import type { AppUpdateStatus, JobRecord, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
 
 function reduceEvent(snapshot: WorkerSnapshot, event: WorkerEvent): WorkerSnapshot {
   switch (event.type) {
@@ -46,6 +46,7 @@ function reduceEvent(snapshot: WorkerSnapshot, event: WorkerEvent): WorkerSnapsh
 
 export function useWorkerStore() {
   const [snapshot, setSnapshot] = useState<WorkerSnapshot>(defaultSnapshot);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateStatus | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -74,6 +75,20 @@ export function useWorkerStore() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    void checkForAppUpdate().then((status) => {
+      if (active && status) {
+        setAppUpdate(status);
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const updateSnapshot = async (promise: Promise<WorkerSnapshot>) => {
     const next = await promise;
     startTransition(() => {
@@ -84,6 +99,7 @@ export function useWorkerStore() {
 
   return {
     snapshot,
+    appUpdate,
     isPending,
     updateSettings: (settings: WorkerSettings) => updateSnapshot(updateSettings(settings)),
     togglePolling: () =>
@@ -97,12 +113,19 @@ export function useWorkerStore() {
     forceCompleteJob: (jobId: string) => updateSnapshot(forceCompleteWorkerJob(jobId)),
     restartWorker: () => updateSnapshot(restartWorker()),
     relaunchApp: () => relaunchApp(),
+    checkForUpdates: async () => {
+      const next = await checkForAppUpdate();
+      setAppUpdate(next);
+      return next;
+    },
+    downloadLatestBuild: () => downloadLatestAppBuild(),
     recentJobs: snapshot.jobs,
     recentLogs: snapshot.logs,
     recentScans: snapshot.scanner.recentScans,
     activeJob: snapshot.jobs.find((job) => job.id === snapshot.activeJobId) ?? null,
   } satisfies {
     snapshot: WorkerSnapshot;
+    appUpdate: AppUpdateStatus | null;
     isPending: boolean;
     updateSettings: (settings: WorkerSettings) => Promise<WorkerSnapshot>;
     togglePolling: () => Promise<WorkerSnapshot>;
@@ -115,6 +138,8 @@ export function useWorkerStore() {
     forceCompleteJob: (jobId: string) => Promise<WorkerSnapshot>;
     restartWorker: () => Promise<WorkerSnapshot>;
     relaunchApp: () => Promise<void>;
+    checkForUpdates: () => Promise<AppUpdateStatus | null>;
+    downloadLatestBuild: () => Promise<void>;
     recentJobs: JobRecord[];
     recentLogs: LogRecord[];
     recentScans: ScanRecord[];

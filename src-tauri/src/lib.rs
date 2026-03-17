@@ -23,6 +23,18 @@ struct RuntimeState {
     worker: Mutex<Option<WorkerHandle>>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateStatus {
+    current_version: String,
+    latest_version: Option<String>,
+    is_update_available: bool,
+    download_url: String,
+    release_url: String,
+    message: Option<String>,
+    checked_at: String,
+}
+
 impl RuntimeState {
     fn with_worker<T>(
         &self,
@@ -408,6 +420,99 @@ fn latest_installer_url() -> &'static str {
 #[tauri::command]
 fn download_latest_app_build() -> Result<(), String> {
     open_url_in_os_impl(latest_installer_url())
+}
+
+fn parse_semver_triplet(value: &str) -> Option<(u64, u64, u64)> {
+    let trimmed = value.trim().trim_start_matches('v');
+    let core = trimmed.split(['-', '+']).next()?.trim();
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
+}
+
+fn extract_version_from_release(tag_name: &str, release_name: &str) -> Option<String> {
+    if parse_semver_triplet(tag_name).is_some() {
+        return Some(tag_name.trim().trim_start_matches('v').to_string());
+    }
+
+    for token in release_name.split_whitespace() {
+        if parse_semver_triplet(token).is_some() {
+            return Some(token.trim().trim_start_matches('v').to_string());
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+fn check_for_app_update(app: AppHandle) -> Result<AppUpdateStatus, String> {
+    let current_version = app.package_info().version.to_string();
+    let download_url = latest_installer_url().to_string();
+    let release_url = "https://github.com/PhotoZone/PX-Receiver/releases".to_string();
+
+    let response = px_client()?
+        .get("https://api.github.com/repos/PhotoZone/PX-Receiver/releases/latest")
+        .header(reqwest::header::USER_AGENT, "PX-Receiver")
+        .send()
+        .map_err(|err| format!("Failed to check for updates: {err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let detail = read_response_detail(response);
+        return Err(format!("Failed to check for updates ({status}): {detail}"));
+    }
+
+    let payload = response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("Failed to decode latest release metadata: {err}"))?;
+    let tag_name = payload
+        .get("tag_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let release_name = payload
+        .get("name")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let latest_version = extract_version_from_release(tag_name, release_name);
+
+    let (is_update_available, message) = match (
+        parse_semver_triplet(&current_version),
+        latest_version.as_deref().and_then(parse_semver_triplet),
+    ) {
+        (Some(current), Some(latest)) => {
+            if latest > current {
+                (
+                    true,
+                    Some(format!(
+                        "Version {} is available. You have {} installed.",
+                        latest_version.clone().unwrap_or_default(),
+                        current_version
+                    )),
+                )
+            } else {
+                (
+                    false,
+                    Some(format!("Latest version already installed ({current_version}).")),
+                )
+            }
+        }
+        _ => (
+            false,
+            Some("Unable to compare the installed version against the latest release yet.".to_string()),
+        ),
+    };
+
+    Ok(AppUpdateStatus {
+        current_version,
+        latest_version,
+        is_update_available,
+        download_url,
+        release_url,
+        message,
+        checked_at: chrono::Utc::now().to_rfc3339(),
+    })
 }
 
 #[tauri::command]
@@ -845,6 +950,7 @@ pub fn run() {
             force_complete_worker_job,
             restart_worker_runtime,
             relaunch_application,
+            check_for_app_update,
             download_latest_app_build,
             open_folder_in_os,
             pick_folder,

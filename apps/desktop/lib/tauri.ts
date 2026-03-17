@@ -1,7 +1,7 @@
 "use client";
 
 import { defaultSnapshot } from "@/lib/defaults";
-import type { InstalledPrinter, JobRecord, ReceiverRoutesResponse, WorkerEvent, WorkerSnapshot, WorkerSettings } from "@/types/app";
+import type { AppUpdateStatus, InstalledPrinter, JobRecord, ReceiverRoutesResponse, WorkerEvent, WorkerSnapshot, WorkerSettings } from "@/types/app";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const localAssetPreviewCache = new Map<string, string>();
@@ -144,6 +144,15 @@ export async function downloadLatestAppBuild() {
 
   const { invoke } = await resolveCore();
   await invoke("download_latest_app_build");
+}
+
+export async function checkForAppUpdate() {
+  if (!isTauri()) {
+    return null as AppUpdateStatus | null;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<AppUpdateStatus>("check_for_app_update");
 }
 
 export async function openFolderInOs(path: string) {

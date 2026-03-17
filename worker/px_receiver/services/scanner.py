@@ -26,6 +26,14 @@ SCANNER_KEYWORDS = (
     "symbol",
     "datalogic",
     "socket",
+    "ch340",
+    "ch341",
+    "wch",
+    "usb-serial",
+    "usb serial",
+    "serial",
+    "prolific",
+    "ftdi",
 )
 
 SYSTEM_PORT_PREFIXES = (
@@ -90,7 +98,12 @@ class ScannerService:
 
     def _find_scanner_port(self) -> str | None:
         assert serial is not None
-        for port in serial.tools.list_ports.comports():
+        ports = sorted(
+            serial.tools.list_ports.comports(),
+            key=self._port_priority,
+            reverse=True,
+        )
+        for port in ports:
             if not self._looks_like_scanner_port(port):
                 continue
             try:
@@ -118,7 +131,29 @@ class ScannerService:
         if any(keyword in searchable for keyword in SCANNER_KEYWORDS):
             return True
 
-        # Require usable USB metadata before we trust a generic serial device.
+        # Trust generic USB serial bridges on Windows if they expose a plausible
+        # device label, even when the scanner vendor name itself is missing.
         has_usb_identity = getattr(port, "vid", None) is not None or getattr(port, "pid", None) is not None
         descriptive_label = getattr(port, "description", "") not in {"", "n/a", None}
         return bool(has_usb_identity and descriptive_label)
+
+    def _port_priority(self, port: Any) -> int:
+        searchable = " ".join(
+            str(value or "").lower()
+            for value in (
+                getattr(port, "device", ""),
+                getattr(port, "description", ""),
+                getattr(port, "manufacturer", ""),
+                getattr(port, "product", ""),
+                getattr(port, "hwid", ""),
+            )
+        )
+
+        score = 0
+        if any(keyword in searchable for keyword in SCANNER_KEYWORDS):
+            score += 10
+        if getattr(port, "vid", None) is not None or getattr(port, "pid", None) is not None:
+            score += 5
+        if str(getattr(port, "device", "") or "").upper().startswith("COM"):
+            score += 2
+        return score

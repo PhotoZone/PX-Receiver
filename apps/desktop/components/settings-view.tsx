@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FolderOpen, RefreshCw, RotateCcw, Save } from "lucide-react";
-import { downloadLatestAppBuild, fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, openFolderInOs, pickFolder } from "@/lib/tauri";
+import { fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, openFolderInOs, pickFolder } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import type { InstalledPrinter, ReceiverRoute, WorkerSettings } from "@/types/app";
 
@@ -157,7 +157,7 @@ function SettingsSection({
 }
 
 export function SettingsView() {
-  const { snapshot, updateSettings, restartWorker, relaunchApp, isPending } = useWorkerStoreContext();
+  const { snapshot, appUpdate, updateSettings, restartWorker, relaunchApp, checkForUpdates, downloadLatestBuild, isPending } = useWorkerStoreContext();
   const [formState, setFormState] = useState<WorkerSettings>(snapshot.settings);
   const [printers, setPrinters] = useState<InstalledPrinter[]>([]);
   const [isLoadingPrinters, setIsLoadingPrinters] = useState(false);
@@ -169,7 +169,9 @@ export function SettingsView() {
   const [manualStoreOverride, setManualStoreOverride] = useState(false);
   const [lastSuccessfulPxSearch, setLastSuccessfulPxSearch] = useState(getLastSuccessfulPxSearch());
   const [isRestartingWorker, setIsRestartingWorker] = useState(false);
+  const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [operationsError, setOperationsError] = useState<string | null>(null);
+  const [updateStatusMessage, setUpdateStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setFormState(snapshot.settings);
@@ -313,14 +315,29 @@ export function SettingsView() {
           type="button"
           onClick={() => {
             setOperationsError(null);
-            void downloadLatestAppBuild().catch((error: unknown) => {
-              setOperationsError(error instanceof Error ? error.message : "Failed to open the latest app build.");
+            setUpdateStatusMessage(null);
+            setIsCheckingForUpdates(true);
+            void checkForUpdates().then((status) => {
+              if (!status) {
+                setUpdateStatusMessage("Update checks are unavailable in the current app build.");
+                return;
+              }
+
+              setUpdateStatusMessage(status.message ?? null);
+              if (status.isUpdateAvailable) {
+                return downloadLatestBuild();
+              }
+            }).catch((error: unknown) => {
+              setOperationsError(error instanceof Error ? error.message : "Failed to check for updates.");
+            }).finally(() => {
+              setIsCheckingForUpdates(false);
             });
           }}
-          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent"
+          disabled={isCheckingForUpdates}
+          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <RefreshCw className="h-4 w-4" />
-          Download latest build
+          <RefreshCw className={`h-4 w-4 ${isCheckingForUpdates ? "animate-spin" : ""}`} />
+          {appUpdate?.isUpdateAvailable ? "Download update" : "Check for updates"}
         </button>
         <button
           type="submit"
@@ -331,6 +348,7 @@ export function SettingsView() {
           Save settings
         </button>
       </div>
+      {updateStatusMessage ? <p className="text-sm text-slate-600">{updateStatusMessage}</p> : null}
       {operationsError ? <p className="text-sm text-rose-600">{operationsError}</p> : null}
 
       <SettingsSection

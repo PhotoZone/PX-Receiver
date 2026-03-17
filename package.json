@@ -7,9 +7,11 @@
   ],
   "scripts": {
     "dev:web": "npm --workspace apps/desktop run dev",
-    "build:web": "npm --workspace apps/desktop run build",
+    "clean:next-conflicts": "node scripts/clean-next-conflicts.mjs",
+    "build:web": "npm run clean:next-conflicts && npm --workspace apps/desktop run build",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "set:version": "node scripts/set-version.mjs",
+    "typecheck:web": "npm run clean:next-conflicts && npm --workspace apps/desktop exec -- tsc --noEmit",
     "lint:web": "npm --workspace apps/desktop run lint",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

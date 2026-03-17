@@ -140,6 +140,16 @@ export type WorkerSnapshot = {
   logs: LogRecord[];
 };
 
+export type AppUpdateStatus = {
+  currentVersion: string;
+  latestVersion?: string | null;
+  isUpdateAvailable: boolean;
+  downloadUrl: string;
+  releaseUrl: string;
+  message?: string | null;
+  checkedAt: string;
+};
+
 export type WorkerEvent =
   | { type: "snapshot"; payload: WorkerSnapshot }
   | { type: "log"; payload: LogRecord }
