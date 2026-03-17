@@ -62,11 +62,15 @@ class ScannerService:
     def start(self) -> None:
         if self.thread and self.thread.is_alive():
             return
+        self.stop_event.clear()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
     def stop(self) -> None:
         self.stop_event.set()
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=2.5)
+        self.thread = None
 
     def _run(self) -> None:
         if serial is None:

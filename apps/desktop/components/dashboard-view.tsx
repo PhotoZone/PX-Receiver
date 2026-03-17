@@ -22,6 +22,19 @@ function normalizePrinterRoute(value?: string | null) {
   return (value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
+function inferOutputRoute(job: JobRecord) {
+  const route = normalizePrinterRoute(job.printer);
+  if (route) {
+    return route;
+  }
+
+  if (job.assets.some((asset) => asset.kind === "control" && ["condition.txt", "end.txt"].includes(asset.filename.trim().toLowerCase()))) {
+    return "fuji";
+  }
+
+  return "";
+}
+
 function StatCard({
   label,
   value,
@@ -102,13 +115,13 @@ export function DashboardView() {
   const pendingIntake = jobs.filter((job) => job.status === "pending" || job.status === "downloading");
   const nextJobs = [...outstandingJobs].sort((left, right) => left.createdAt.localeCompare(right.createdAt)).slice(0, 5);
   const fujiOutstanding = outstandingJobs.filter((job) => {
-    const route = normalizePrinterRoute(job.printer);
+    const route = inferOutputRoute(job);
     return route === "fuji_lab" || route === "fuji";
   });
-  const sublimationOutstanding = outstandingJobs.filter((job) => normalizePrinterRoute(job.printer) === "sublimation");
-  const largeFormatOutstanding = outstandingJobs.filter((job) => normalizePrinterRoute(job.printer) === "large_format");
+  const sublimationOutstanding = outstandingJobs.filter((job) => inferOutputRoute(job) === "sublimation");
+  const largeFormatOutstanding = outstandingJobs.filter((job) => inferOutputRoute(job) === "large_format");
   const defaultOutstanding = outstandingJobs.filter((job) => {
-    const route = normalizePrinterRoute(job.printer);
+    const route = inferOutputRoute(job);
     return !route || route === "none";
   });
 
