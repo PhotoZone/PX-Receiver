@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { defaultSnapshot } from "@/lib/defaults";
-import { checkForAppUpdate, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, recoverRemoteJob, reprintJob, relaunchApp, restartWorker, resumePolling, retryJob, updateSettings } from "@/lib/tauri";
+import { checkForAppUpdate, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, recoverRemoteJob, reprintJob, reprintWorkerScanLabel, relaunchApp, restartWorker, resumePolling, retryJob, updateSettings } from "@/lib/tauri";
 import type { AppUpdateStatus, JobRecord, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
 
 function reduceEvent(snapshot: WorkerSnapshot, event: WorkerEvent): WorkerSnapshot {
@@ -110,6 +110,7 @@ export function useWorkerStore() {
     reprintJob: (jobId: string) => updateSnapshot(reprintJob(jobId)),
     printPackingSlip: (jobId: string) => updateSnapshot(printWorkerPackingSlip(jobId)),
     printLabel: (jobId: string) => updateSnapshot(printWorkerLabel(jobId)),
+    reprintScanLabel: (scanId: string) => updateSnapshot(reprintWorkerScanLabel(scanId)),
     forceCompleteJob: (jobId: string) => updateSnapshot(forceCompleteWorkerJob(jobId)),
     restartWorker: () => updateSnapshot(restartWorker()),
     relaunchApp: () => relaunchApp(),
@@ -135,6 +136,7 @@ export function useWorkerStore() {
     reprintJob: (jobId: string) => Promise<WorkerSnapshot>;
     printPackingSlip: (jobId: string) => Promise<WorkerSnapshot>;
     printLabel: (jobId: string) => Promise<WorkerSnapshot>;
+    reprintScanLabel: (scanId: string) => Promise<WorkerSnapshot>;
     forceCompleteJob: (jobId: string) => Promise<WorkerSnapshot>;
     restartWorker: () => Promise<WorkerSnapshot>;
     relaunchApp: () => Promise<void>;

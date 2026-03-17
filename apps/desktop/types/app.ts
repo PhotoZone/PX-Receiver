@@ -82,6 +82,10 @@ export type ScanRecord = {
   timestamp: string;
   status: string;
   message?: string | null;
+  jobId?: string | null;
+  orderId?: string | null;
+  canReprintLabel?: boolean;
+  shippingLabelPath?: string | null;
 };
 
 export type ScannerState = {
@@ -107,6 +111,7 @@ export type JobRecord = {
   customerPhone?: string | null;
   deliveryMethod?: string | null;
   shipmentId?: string | null;
+  shippingLabelPath?: string | null;
   shippingAddressLine1?: string | null;
   shippingAddressLine2?: string | null;
   shippingCity?: string | null;

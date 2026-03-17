@@ -37,6 +37,14 @@ def thumbs_dir(settings: WorkerSettings, job: JobRecord) -> Path:
     return job_working_dir(settings, job) / "thumbs"
 
 
+def labels_dir(settings: WorkerSettings, job: JobRecord) -> Path:
+    return job_working_dir(settings, job) / "labels"
+
+
+def scan_labels_dir(settings: WorkerSettings) -> Path:
+    return working_root(settings) / "scan-labels"
+
+
 def normalize_printer_route(value: str | None) -> str:
     return (value or "").strip().casefold().replace("-", "_").replace(" ", "_")
 
@@ -88,6 +96,22 @@ def write_job_asset(settings: WorkerSettings, job: JobRecord, asset: AssetRecord
     thumbnail = create_thumbnail(settings, job, asset, destination)
 
     return destination, thumbnail
+
+
+def cache_shipping_label_pdf(settings: WorkerSettings, job: JobRecord, source: Path) -> Path:
+    target_dir = labels_dir(settings, job)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    destination = target_dir / "shipping-label.pdf"
+    shutil.copy2(source, destination)
+    return destination
+
+
+def cache_external_shipping_label_pdf(settings: WorkerSettings, order_reference: str, source: Path) -> Path:
+    target_dir = scan_labels_dir(settings)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    destination = target_dir / f"{_slugify(order_reference)}.pdf"
+    shutil.copy2(source, destination)
+    return destination
 
 
 def resolve_hot_folder(settings: WorkerSettings, job: JobRecord) -> str:

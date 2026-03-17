@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from px_receiver.models import AssetKind, AssetRecord, HealthState, JobRecord, JobStatus, LogLevel, LogRecord, PrintInstructions, ScanRecord, ScannerState, WorkerSettings, WorkerSnapshot, now_iso
 from px_receiver.services.backend import BackendClient, build_backend_client
-from px_receiver.services.filesystem import prune_working_directories, release_asset_to_hot_folder, write_job_asset
+from px_receiver.services.filesystem import cache_external_shipping_label_pdf, cache_shipping_label_pdf, prune_working_directories, release_asset_to_hot_folder, write_job_asset
 from px_receiver.services.printer import print_pdf
 from px_receiver.services.scanner import ScannerService
 from px_receiver.services.shipstation import create_shipping_label_pdf
@@ -280,6 +280,18 @@ class WorkerRuntime:
 
         return True
 
+    def classify_scan_code(self, code: str) -> str:
+        normalized = str(code or "").strip()
+        if not normalized:
+            return "unknown"
+        if normalized.casefold().startswith("w"):
+            return "wink"
+        if len(normalized) == 7 and normalized.startswith("4") and normalized.isdigit():
+            return "photozone"
+        if len(normalized) == 12 and normalized.isdigit():
+            return "postsnap"
+        return "unknown"
+
     def find_job_for_scan(self, code: str) -> JobRecord | None:
         normalized = str(code or "").strip()
         if not normalized:
@@ -301,30 +313,10 @@ class WorkerRuntime:
     def handle_scan(self, code: str, source: str) -> None:
         matched_job = self.find_job_for_scan(code)
         if matched_job is None:
-            scan = ScanRecord(
-                id=str(uuid4()),
-                code=code,
-                source=source,
-                status="unmatched",
-                message="Barcode received, but no matching job was found.",
-            )
-            self.emit_log(LogLevel.WARNING, f"Barcode scanned with no matching job: {code}", "scanner")
-            self.emit_scan(scan)
+            self.handle_unmatched_scan(code, source)
             return
 
-        scan = ScanRecord(
-            id=str(uuid4()),
-            code=code,
-            source=source,
-            status="matched",
-            message=(
-                f"Matched {matched_job.order_id}; requesting label."
-                if self.should_print_shipping_label_for_scan(matched_job)
-                else f"Matched {matched_job.order_id}; marking completed."
-            ),
-        )
         self.emit_log(LogLevel.INFO, f"Barcode scanned: {code}", "scanner")
-        self.emit_scan(scan)
         self.safe_backend_report_job_event(
             matched_job.id,
             "scan_confirmed",
@@ -335,10 +327,109 @@ class WorkerRuntime:
             },
         )
         if self.should_print_shipping_label_for_scan(matched_job):
-            self.print_shipping_label(matched_job.id)
+            label_path = self.print_shipping_label(matched_job.id)
+            self.emit_scan(
+                ScanRecord(
+                    id=str(uuid4()),
+                    code=code,
+                    source=source,
+                    status="matched" if label_path else "failed",
+                    job_id=matched_job.id,
+                    order_id=matched_job.order_id,
+                    can_reprint_label=bool(label_path),
+                    shipping_label_path=str(label_path) if label_path else None,
+                    message=(
+                        f"Matched {matched_job.order_id}; printed label."
+                        if label_path
+                        else f"Matched {matched_job.order_id}; label failed."
+                    ),
+                )
+            )
             return
 
+        self.emit_scan(
+            ScanRecord(
+                id=str(uuid4()),
+                code=code,
+                source=source,
+                status="matched",
+                job_id=matched_job.id,
+                order_id=matched_job.order_id,
+                can_reprint_label=False,
+                message=f"Matched {matched_job.order_id}; marking completed.",
+            )
+        )
         self.complete_job_from_scan(matched_job.id)
+
+    def handle_unmatched_scan(self, code: str, source: str) -> None:
+        scan_kind = self.classify_scan_code(code)
+        if scan_kind == "photozone":
+            self.handle_photozone_scan(code, source)
+            return
+        if scan_kind == "postsnap":
+            self.handle_postsnap_scan(code, source)
+            return
+
+        scan = ScanRecord(
+            id=str(uuid4()),
+            code=code,
+            source=source,
+            status="unmatched",
+            message="Barcode received, but no matching job was found.",
+        )
+        self.emit_log(LogLevel.WARNING, f"Barcode scanned with no matching job: {code}", "scanner")
+        self.emit_scan(scan)
+
+    def handle_photozone_scan(self, code: str, source: str) -> None:
+        try:
+            matches = self.backend.search_jobs(code)
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(LogLevel.ERROR, f"PX scan lookup failed for {code}: {exc}", "scanner")
+            self.emit_scan(
+                ScanRecord(
+                    id=str(uuid4()),
+                    code=code,
+                    source=source,
+                    status="failed",
+                    message=f"PX lookup failed: {exc}",
+                )
+            )
+            return
+
+        exact_matches = [job for job in matches if str(job.order_id).strip().casefold() == code.strip().casefold()]
+        candidate_matches = exact_matches or matches
+        if len(candidate_matches) != 1:
+            self.emit_log(LogLevel.WARNING, f"PX scan lookup did not resolve uniquely for {code}", "scanner")
+            self.emit_scan(
+                ScanRecord(
+                    id=str(uuid4()),
+                    code=code,
+                    source=source,
+                    status="unmatched",
+                    message="No unique PX receiver order was found for this barcode.",
+                )
+            )
+            return
+
+        job = candidate_matches[0]
+        self.emit_scan(
+            ScanRecord(
+                id=str(uuid4()),
+                code=code,
+                source=source,
+                status="matched",
+                job_id=job.id,
+                order_id=job.order_id,
+                can_reprint_label=False,
+                message=f"Matched {job.order_id}; marking completed.",
+            )
+        )
+        self.emit_log(LogLevel.INFO, f"Barcode scanned and resolved via PX search: {code}", "scanner")
+        self.complete_job_from_scan(job.id, resolved_job=job)
+
+    def handle_postsnap_scan(self, code: str, source: str) -> None:
+        self.emit_log(LogLevel.INFO, f"Barcode scanned and resolved via ShipStation: {code}", "scanner")
+        self.print_shipping_label_for_order_number(code, source=source)
 
     def register(self) -> None:
         try:
@@ -447,6 +538,12 @@ class WorkerRuntime:
             job_id = str(command.get("job_id", ""))
             if job_id:
                 self.print_shipping_label(job_id)
+            return
+
+        if name == "reprint_scan_label":
+            scan_id = str(command.get("scan_id", ""))
+            if scan_id:
+                self.reprint_scan_label(scan_id)
             return
 
         if name == "force_complete_job":
@@ -568,6 +665,7 @@ class WorkerRuntime:
         local_paths: dict[str, str] | None = None,
         assets: list[AssetRecord] | None = None,
         last_error: str | None = None,
+        shipping_label_path: str | None = None,
     ) -> JobRecord:
         updated = replace(
             job,
@@ -576,6 +674,7 @@ class WorkerRuntime:
             local_paths=local_paths if local_paths is not None else job.local_paths,
             assets=assets if assets is not None else job.assets,
             last_error=last_error,
+            shipping_label_path=shipping_label_path if shipping_label_path is not None else job.shipping_label_path,
             updated_at=now_iso(),
             attempts=job.attempts + (1 if status == JobStatus.FAILED else 0),
         )
@@ -902,11 +1001,39 @@ class WorkerRuntime:
             self.snapshot.current_activity = "Receiving orders, output paused" if self.snapshot.polling_paused else "Idle and waiting for jobs"
             self.emit_health()
 
-    def print_shipping_label(self, job_id: str) -> None:
+    def print_shipping_label(self, job_id: str) -> Path | None:
         job = next((item for item in self.snapshot.jobs if item.id == job_id), None)
         if job is None:
             self.emit_log(LogLevel.WARNING, f"Label print requested for unknown job {job_id}", "control")
-            return
+            return None
+
+        cached_label_path = Path(job.shipping_label_path) if job.shipping_label_path else None
+        if cached_label_path and cached_label_path.exists():
+            self.emit_log(LogLevel.INFO, f"Reprinting cached shipping label for {job.order_id}", "label")
+            try:
+                self._print_label_pdf(job, cached_label_path)
+                self.emit_log(LogLevel.INFO, f"Reprinted shipping label for {job.order_id}", "label")
+                self.safe_backend_report_job_event(
+                    job_id,
+                    "shipping_label_reprinted",
+                    {
+                        "printed_at": now_iso(),
+                        "machine_id": self.settings.machine_id,
+                    },
+                )
+                return cached_label_path
+            except Exception as exc:  # noqa: BLE001
+                self.emit_log(LogLevel.ERROR, f"Shipping label reprint failed for {job.order_id}: {exc}", "label")
+                self.safe_backend_report_job_event(
+                    job_id,
+                    "shipping_label_reprint_failed",
+                    {
+                        "failed_at": now_iso(),
+                        "machine_id": self.settings.machine_id,
+                        "error": str(exc),
+                    },
+                )
+                return None
 
         self.emit_log(LogLevel.INFO, f"Starting shipping label print for {job_id}", "label")
         self.safe_backend_report_job_event(
@@ -924,21 +1051,17 @@ class WorkerRuntime:
                 order_number=job.order_id,
                 api_key=self.settings.shipstation_api_key,
             )
-            print_pdf(
-                label_path,
-                replace(
-                    job.print_instructions,
-                    auto_print_pdf=True,
-                    printer_name=self.settings.shipping_label_printer_name.strip() or None,
-                    copies=1,
-                )
-                if job.print_instructions
-                else PrintInstructions(
-                    auto_print_pdf=True,
-                    printer_name=self.settings.shipping_label_printer_name.strip() or None,
-                    copies=1,
-                ),
+            cached_label_path = cache_shipping_label_pdf(self.settings, job, label_path)
+            updated_job = self.update_job_state(
+                job,
+                job.status,
+                local_path=job.local_path,
+                local_paths=job.local_paths,
+                assets=job.assets,
+                last_error=job.last_error,
+                shipping_label_path=str(cached_label_path),
             )
+            self._print_label_pdf(updated_job, cached_label_path)
             self.emit_log(LogLevel.INFO, f"Printed shipping label for {job.order_id}", "label")
             self.safe_backend_report_job_event(
                 job_id,
@@ -948,6 +1071,7 @@ class WorkerRuntime:
                     "machine_id": self.settings.machine_id,
                 },
             )
+            return cached_label_path
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Shipping label print failed for {job.order_id}: {exc}", "label")
             self.safe_backend_report_job_event(
@@ -959,6 +1083,67 @@ class WorkerRuntime:
                     "error": str(exc),
                 },
             )
+            return None
+
+    def _print_label_pdf(self, job: JobRecord, label_path: Path) -> None:
+        print_pdf(
+            label_path,
+            replace(
+                job.print_instructions,
+                auto_print_pdf=True,
+                printer_name=self.settings.shipping_label_printer_name.strip() or None,
+                copies=1,
+            )
+            if job.print_instructions
+            else PrintInstructions(
+                auto_print_pdf=True,
+                printer_name=self.settings.shipping_label_printer_name.strip() or None,
+                copies=1,
+            ),
+        )
+
+    def print_shipping_label_for_order_number(self, order_number: str, *, source: str) -> None:
+        try:
+            label_path = create_shipping_label_pdf(
+                order_number=order_number,
+                api_key=self.settings.shipstation_api_key,
+            )
+            cached_label_path = cache_external_shipping_label_pdf(self.settings, order_number, label_path)
+            self._print_label_pdf_for_scan(cached_label_path)
+            self.emit_scan(
+                ScanRecord(
+                    id=str(uuid4()),
+                    code=order_number,
+                    source=source,
+                    status="matched",
+                    order_id=order_number,
+                    can_reprint_label=True,
+                    shipping_label_path=str(cached_label_path),
+                    message=f"Matched {order_number}; printed label.",
+                )
+            )
+            self.emit_log(LogLevel.INFO, f"Printed ShipStation label for {order_number}", "label")
+        except Exception as exc:  # noqa: BLE001
+            self.emit_scan(
+                ScanRecord(
+                    id=str(uuid4()),
+                    code=order_number,
+                    source=source,
+                    status="failed",
+                    message=f"ShipStation label failed: {exc}",
+                )
+            )
+            self.emit_log(LogLevel.ERROR, f"ShipStation label print failed for {order_number}: {exc}", "label")
+
+    def _print_label_pdf_for_scan(self, label_path: Path) -> None:
+        print_pdf(
+            label_path,
+            PrintInstructions(
+                auto_print_pdf=True,
+                printer_name=self.settings.shipping_label_printer_name.strip() or None,
+                copies=1,
+            ),
+        )
 
     def print_packing_slip(self, job_id: str) -> None:
         job = next((item for item in self.snapshot.jobs if item.id == job_id), None)
@@ -1045,11 +1230,14 @@ class WorkerRuntime:
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Force complete failed for {job_id}: {exc}", "control")
 
-    def complete_job_from_scan(self, job_id: str) -> None:
-        job = next((item for item in self.snapshot.jobs if item.id == job_id), None)
+    def complete_job_from_scan(self, job_id: str, *, resolved_job: JobRecord | None = None) -> None:
+        job = next((item for item in self.snapshot.jobs if item.id == job_id), None) or resolved_job
         if job is None:
             self.emit_log(LogLevel.WARNING, f"Scan completion requested for unknown job {job_id}", "scanner")
             return
+
+        if resolved_job is not None and all(existing.id != resolved_job.id for existing in self.snapshot.jobs):
+            self.emit_job(resolved_job)
 
         self.emit_log(LogLevel.INFO, f"Completing {job_id} from barcode scan", "scanner")
 
@@ -1078,6 +1266,23 @@ class WorkerRuntime:
             self.emit_log(LogLevel.INFO, f"Job {job_id} marked completed from barcode scan", "scanner")
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Barcode completion failed for {job_id}: {exc}", "scanner")
+
+    def reprint_scan_label(self, scan_id: str) -> None:
+        scan = next((item for item in self.snapshot.scanner.recent_scans if item.id == scan_id), None)
+        if scan is None:
+            self.emit_log(LogLevel.WARNING, f"Scan label reprint requested for unknown scan {scan_id}", "scanner")
+            return
+
+        label_path = Path(scan.shipping_label_path) if scan.shipping_label_path else None
+        if label_path is None or not label_path.exists():
+            self.emit_log(LogLevel.WARNING, f"No cached label available for scan {scan.code}", "scanner")
+            return
+
+        try:
+            self._print_label_pdf_for_scan(label_path)
+            self.emit_log(LogLevel.INFO, f"Reprinted scanned label for {scan.code}", "label")
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(LogLevel.ERROR, f"Scanned label reprint failed for {scan.code}: {exc}", "label")
 
     def run(self) -> None:
         self.start_command_listener()

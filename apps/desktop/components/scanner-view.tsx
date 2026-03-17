@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, ScanLine } from "lucide-react";
+import { Download, ScanLine, Tag } from "lucide-react";
 import { saveBundledScannerDriver } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import { formatDateTime } from "@/lib/utils";
+import type { ScanRecord } from "@/types/app";
 
 const scannerStateText: Record<string, string> = {
   disabled: "Scanner not started",
@@ -14,8 +15,48 @@ const scannerStateText: Record<string, string> = {
   error: "Scanner error",
 };
 
+type ScanAppearance = {
+  label: string;
+  cardClassName: string;
+  badgeClassName: string;
+};
+
+function getScanAppearance(scan: ScanRecord): ScanAppearance {
+  const code = scan.code.trim();
+
+  if (/^4\d{6}$/.test(code)) {
+    return {
+      label: "Photo Zone",
+      cardClassName: "border-blue-300 bg-blue-950/8",
+      badgeClassName: "border-blue-300 bg-blue-950 text-blue-50",
+    };
+  }
+
+  if (/^\d{12}$/.test(code)) {
+    return {
+      label: "PostSnap",
+      cardClassName: "border-rose-300 bg-rose-50",
+      badgeClassName: "border-rose-300 bg-rose-700 text-rose-50",
+    };
+  }
+
+  if (/^W[\dA-Z]+$/i.test(code)) {
+    return {
+      label: "Wink",
+      cardClassName: "border-amber-300 bg-amber-50",
+      badgeClassName: "border-amber-300 bg-amber-300 text-amber-950",
+    };
+  }
+
+  return {
+    label: "Unknown",
+    cardClassName: "border-slate-200 bg-white",
+    badgeClassName: "border-slate-200 bg-slate-100 text-slate-700",
+  };
+}
+
 export function ScannerView() {
-  const { snapshot, recentScans } = useWorkerStoreContext();
+  const { snapshot, recentScans, reprintScanLabel, isPending } = useWorkerStoreContext();
   const [isDownloadingDriver, setIsDownloadingDriver] = useState(false);
   const [driverDownloadError, setDriverDownloadError] = useState<string | null>(null);
   const [driverDownloadSuccess, setDriverDownloadSuccess] = useState<string | null>(null);
@@ -79,20 +120,41 @@ export function ScannerView() {
             </div>
           ) : (
             recentScans.map((scan) => (
-              <div key={scan.id} className="grid gap-4 rounded-2xl border border-slate-200 p-4 md:grid-cols-[180px,1fr,160px]">
+              <div
+                key={scan.id}
+                className={`grid gap-4 rounded-2xl border p-4 md:grid-cols-[180px,1fr,200px] ${getScanAppearance(scan).cardClassName}`}
+              >
                 <div>
                   <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Timestamp</p>
                   <p className="mt-1 font-medium text-slate-800">{formatDateTime(scan.timestamp)}</p>
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Barcode</p>
-                  <p className="mt-1 font-medium text-slate-800">{scan.code}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <p className="font-medium text-slate-800">{scan.code}</p>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${getScanAppearance(scan).badgeClassName}`}
+                    >
+                      {getScanAppearance(scan).label}
+                    </span>
+                  </div>
                   <p className="mt-1 text-sm text-slate-500">{scan.message ?? "Captured by worker"}</p>
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Source</p>
                   <p className="mt-1 font-medium text-slate-800">{scan.source}</p>
                   <p className="mt-1 text-sm capitalize text-slate-500">{scan.status}</p>
+                  {scan.canReprintLabel ? (
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => void reprintScanLabel(scan.id)}
+                      className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Tag className="h-3.5 w-3.5" />
+                      Reprint label
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))

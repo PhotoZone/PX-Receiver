@@ -110,6 +110,15 @@ export async function printWorkerLabel(jobId: string) {
   return invoke<WorkerSnapshot>("print_worker_label", { jobId });
 }
 
+export async function reprintWorkerScanLabel(scanId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("reprint_worker_scan_label", { scanId });
+}
+
 export async function forceCompleteWorkerJob(jobId: string) {
   if (!isTauri()) {
     return defaultSnapshot;
@@ -446,6 +455,7 @@ type SearchJobRecord = Omit<JobRecord, "assets" | "items" | "printInstructions">
   customer_phone?: string | null;
   delivery_method?: string | null;
   shipment_id?: string | null;
+  shipping_label_path?: string | null;
   shipping_address_line1?: string | null;
   shipping_address_line2?: string | null;
   shipping_city?: string | null;
@@ -514,6 +524,7 @@ function normalizeSearchJobRecord(job: SearchJobRecord): JobRecord {
     customerPhone: job.customerPhone ?? job.customer_phone ?? null,
     deliveryMethod: job.deliveryMethod ?? job.delivery_method ?? null,
     shipmentId: job.shipmentId ?? job.shipment_id ?? null,
+    shippingLabelPath: job.shippingLabelPath ?? job.shipping_label_path ?? null,
     shippingAddressLine1: job.shippingAddressLine1 ?? job.shipping_address_line1 ?? null,
     shippingAddressLine2: job.shippingAddressLine2 ?? job.shipping_address_line2 ?? null,
     shippingCity: job.shippingCity ?? job.shipping_city ?? null,

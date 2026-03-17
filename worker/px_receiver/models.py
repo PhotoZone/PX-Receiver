@@ -166,6 +166,10 @@ class ScanRecord:
     timestamp: str = field(default_factory=now_iso)
     status: str = "captured"
     message: str | None = None
+    job_id: str | None = None
+    order_id: str | None = None
+    can_reprint_label: bool = False
+    shipping_label_path: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return to_camel_dict(self)
@@ -179,6 +183,10 @@ class ScanRecord:
             timestamp=payload.get("timestamp", now_iso()),
             status=payload.get("status", "captured"),
             message=payload.get("message"),
+            job_id=payload.get("jobId", payload.get("job_id")),
+            order_id=payload.get("orderId", payload.get("order_id")),
+            can_reprint_label=bool(payload.get("canReprintLabel", payload.get("can_reprint_label", False))),
+            shipping_label_path=payload.get("shippingLabelPath", payload.get("shipping_label_path")),
         )
 
 
@@ -210,6 +218,7 @@ class JobRecord:
     customer_phone: str | None
     delivery_method: str | None
     shipment_id: str | None
+    shipping_label_path: str | None
     shipping_address_line1: str | None
     shipping_address_line2: str | None
     shipping_city: str | None
@@ -247,6 +256,7 @@ class JobRecord:
             customer_phone=payload.get("customerPhone", payload.get("customer_phone")),
             delivery_method=payload.get("deliveryMethod", payload.get("delivery_method")),
             shipment_id=payload.get("shipmentId", payload.get("shipment_id")),
+            shipping_label_path=payload.get("shippingLabelPath", payload.get("shipping_label_path")),
             shipping_address_line1=payload.get("shippingAddressLine1", payload.get("shipping_address_line1")),
             shipping_address_line2=payload.get("shippingAddressLine2", payload.get("shipping_address_line2")),
             shipping_city=payload.get("shippingCity", payload.get("shipping_city")),

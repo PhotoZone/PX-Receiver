@@ -157,6 +157,10 @@ pub struct ScanRecord {
     pub timestamp: String,
     pub status: String,
     pub message: Option<String>,
+    pub job_id: Option<String>,
+    pub order_id: Option<String>,
+    pub can_reprint_label: bool,
+    pub shipping_label_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +190,7 @@ pub struct JobRecord {
     pub customer_phone: Option<String>,
     pub delivery_method: Option<String>,
     pub shipment_id: Option<String>,
+    pub shipping_label_path: Option<String>,
     pub shipping_address_line1: Option<String>,
     pub shipping_address_line2: Option<String>,
     pub shipping_city: Option<String>,
@@ -300,6 +305,7 @@ enum WorkerCommand {
     ReprintJob { job_id: String },
     PrintPackingSlip { job_id: String },
     PrintLabel { job_id: String },
+    ReprintScanLabel { scan_id: String },
     ForceCompleteJob { job_id: String },
     UpdateSettings { settings: WorkerSettings },
     Shutdown,
@@ -412,6 +418,10 @@ impl WorkerHandle {
 
     pub fn print_label(&self, job_id: String) -> Result<(), WorkerError> {
         self.send(WorkerCommand::PrintLabel { job_id })
+    }
+
+    pub fn reprint_scan_label(&self, scan_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::ReprintScanLabel { scan_id })
     }
 
     pub fn force_complete_job(&self, job_id: String) -> Result<(), WorkerError> {

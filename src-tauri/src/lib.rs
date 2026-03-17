@@ -328,6 +328,23 @@ fn print_worker_label(
 }
 
 #[tauri::command]
+fn reprint_worker_scan_label(
+    state: State<'_, RuntimeState>,
+    scan_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| {
+        worker
+            .reprint_scan_label(scan_id)
+            .map_err(|err| err.to_string())
+    })?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
 fn force_complete_worker_job(
     state: State<'_, RuntimeState>,
     job_id: String,
@@ -960,6 +977,7 @@ pub fn run() {
             reprint_worker_job,
             print_worker_packing_slip,
             print_worker_label,
+            reprint_worker_scan_label,
             force_complete_worker_job,
             restart_worker_runtime,
             relaunch_application,

@@ -502,6 +502,7 @@ function JobRow({
   const canReprint = ["completed", "downloaded", "processing", "failed"].includes(job.status) && !isPending;
   const canPrintPackingSlip = job.assets.some((asset) => asset.kind === "pdf" && Boolean(asset.localPath)) && !isPending;
   const canPrintLabel = Boolean(job.shipmentId || job.orderId) && !isPending;
+  const hasCachedLabel = Boolean(job.shippingLabelPath);
   const canForceComplete = job.status === "processing" && !isPending;
 
   return (
@@ -561,7 +562,7 @@ function JobRow({
           <button
             type="button"
             disabled={!canPrintLabel}
-            title="Print Label"
+            title={hasCachedLabel ? "Reprint Label" : "Print Label"}
             onClick={(event) => {
               event.stopPropagation();
               printLabel(job.id);
