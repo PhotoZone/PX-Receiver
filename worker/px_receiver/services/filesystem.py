@@ -101,6 +101,14 @@ def resolve_hot_folder(settings: WorkerSettings, job: JobRecord) -> str:
     if printer_route == "none":
         return settings.hot_folder_path.strip()
 
+    # PX Fuji jobs carry generated control assets even when the worker payload
+    # does not include an explicit printer route. Use that as the routing hint.
+    if any(
+        asset.kind == AssetKind.CONTROL and asset.filename.strip().casefold() in {"condition.txt", "end.txt"}
+        for asset in job.assets
+    ):
+        return settings.photo_print_hot_folder_path.strip() or settings.hot_folder_path.strip()
+
     product_name = job.product_name.strip().casefold()
     if product_name == "photo print":
         return settings.photo_print_hot_folder_path.strip() or settings.hot_folder_path.strip()

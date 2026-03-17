@@ -200,11 +200,19 @@ export function SettingsView() {
   };
 
   useEffect(() => {
-    void loadPrinters();
+    const timeoutId = window.setTimeout(() => {
+      void loadPrinters();
+    }, 0);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   useEffect(() => {
     let active = true;
+    const timeoutId = window.setTimeout(() => {
+      void loadRoutes();
+    }, 0);
 
     const loadRoutes = async () => {
       setIsLoadingRoutes(true);
@@ -240,10 +248,9 @@ export function SettingsView() {
       }
     };
 
-    void loadRoutes();
-
     return () => {
       active = false;
+      window.clearTimeout(timeoutId);
     };
   }, [formState.backendUrl, formState.apiToken, formState.machineAuthToken, formState.useMockBackend]);
 
