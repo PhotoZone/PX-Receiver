@@ -137,6 +137,15 @@ export async function relaunchApp() {
   await invoke("relaunch_application");
 }
 
+export async function downloadLatestAppBuild() {
+  if (!isTauri()) {
+    return;
+  }
+
+  const { invoke } = await resolveCore();
+  await invoke("download_latest_app_build");
+}
+
 export async function openFolderInOs(path: string) {
   if (!path) {
     return;

@@ -9,6 +9,7 @@
     "dev:web": "npm --workspace apps/desktop run dev",
     "build:web": "npm --workspace apps/desktop run build",
     "build:sidecar": "node scripts/build-sidecar.mjs",
+    "set:version": "node scripts/set-version.mjs",
     "lint:web": "npm --workspace apps/desktop run lint",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

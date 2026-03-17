@@ -415,7 +415,20 @@ class WorkerRuntime:
 
     def should_skip_job(self, job: JobRecord) -> bool:
         path = self.local_state.processed_jobs.get(job.id)
-        return bool(path and Path(path).exists() and job.id not in self.retry_queue)
+        if not path or job.id in self.retry_queue:
+            return False
+
+        try:
+            return Path(path).exists()
+        except OSError as exc:
+            self.local_state.processed_jobs.pop(job.id, None)
+            self.local_state.save(self.paths["state"])
+            self.emit_log(
+                LogLevel.WARNING,
+                f"Ignored invalid processed job path for {job.id}: {path} ({exc})",
+                "state",
+            )
+            return False
 
     def poll_once(self) -> None:
         self.snapshot.last_sync_at = now_iso()

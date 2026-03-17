@@ -378,6 +378,38 @@ fn relaunch_application(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+fn open_url_in_os_impl(url: &str) -> Result<(), String> {
+    let status = if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", "start", "", url]).status()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(url).status()
+    } else {
+        Command::new("xdg-open").arg(url).status()
+    }
+    .map_err(|err| format!("Failed to open URL: {err}"))?;
+
+    if !status.success() {
+        return Err(format!("Failed to open URL: {url}"));
+    }
+
+    Ok(())
+}
+
+fn latest_installer_url() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-Windows-x64-setup.exe"
+    } else if cfg!(target_os = "macos") {
+        "https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-macOS.dmg"
+    } else {
+        "https://github.com/PhotoZone/PX-Receiver/releases"
+    }
+}
+
+#[tauri::command]
+fn download_latest_app_build() -> Result<(), String> {
+    open_url_in_os_impl(latest_installer_url())
+}
+
 #[tauri::command]
 fn open_folder_in_os(path: String) -> Result<(), String> {
     let resolved = expand_user_path(&path);
@@ -813,6 +845,7 @@ pub fn run() {
             force_complete_worker_job,
             restart_worker_runtime,
             relaunch_application,
+            download_latest_app_build,
             open_folder_in_os,
             pick_folder,
             get_installed_printers,

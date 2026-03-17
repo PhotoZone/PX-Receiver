@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FolderOpen, RefreshCw, RotateCcw, Save } from "lucide-react";
-import { fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, openFolderInOs, pickFolder } from "@/lib/tauri";
+import { downloadLatestAppBuild, fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, openFolderInOs, pickFolder } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import type { InstalledPrinter, ReceiverRoute, WorkerSettings } from "@/types/app";
 
@@ -308,6 +308,19 @@ export function SettingsView() {
         >
           <RotateCcw className="h-4 w-4" />
           Relaunch app
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOperationsError(null);
+            void downloadLatestAppBuild().catch((error: unknown) => {
+              setOperationsError(error instanceof Error ? error.message : "Failed to open the latest app build.");
+            });
+          }}
+          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Download latest build
         </button>
         <button
           type="submit"

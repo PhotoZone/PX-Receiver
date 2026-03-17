@@ -45,14 +45,17 @@ jobs:
         shell: bash
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            app_version="${GITHUB_REF_NAME#v}"
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "name=Release ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
+            app_version="0.1.${GITHUB_RUN_NUMBER}"
             echo "tag=build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "name=Build ${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
 
       - name: Check out repository
         uses: actions/checkout@v5
@@ -79,6 +82,9 @@ jobs:
 
       - name: Install JavaScript dependencies
         run: npm install
+
+      - name: Stamp app version
+        run: npm run set:version -- ${{ steps.release_meta.outputs.app_version }}
 
       - name: Create worker virtualenv and install worker dependencies
         if: runner.os != 'Windows'
