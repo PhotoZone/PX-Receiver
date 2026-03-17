@@ -752,11 +752,42 @@ class WorkerRuntime:
             summary = ", ".join(f"{job.id}:{job.status.value}" for job in jobs[:10])
             self.emit_log(LogLevel.INFO, f"Backend jobs: {summary}", "poller")
 
-        known_job_ids = {item.id for item in self.snapshot.jobs}
+        existing_jobs = {item.id: item for item in self.snapshot.jobs}
         for job in jobs:
-            if job.id not in known_job_ids:
+            existing = existing_jobs.get(job.id)
+            if existing is None:
                 self.emit_job(job)
-                known_job_ids.add(job.id)
+                continue
+
+            refreshed = replace(
+                existing,
+                status=job.status,
+                source=job.source,
+                store_id=job.store_id,
+                target_machine_id=job.target_machine_id,
+                target_location=job.target_location,
+                ordered_at=job.ordered_at,
+                product_name=job.product_name,
+                printer=job.printer,
+                customer_name=job.customer_name,
+                customer_email=job.customer_email,
+                customer_phone=job.customer_phone,
+                delivery_method=job.delivery_method,
+                shipment_id=job.shipment_id,
+                shipping_address_line1=job.shipping_address_line1,
+                shipping_address_line2=job.shipping_address_line2,
+                shipping_city=job.shipping_city,
+                shipping_postcode=job.shipping_postcode,
+                shipping_country=job.shipping_country,
+                items=job.items,
+                print_instructions=job.print_instructions,
+                last_error=job.last_error,
+                created_at=job.created_at,
+                updated_at=job.updated_at,
+            )
+
+            if refreshed.to_payload() != existing.to_payload():
+                self.emit_job(refreshed)
 
         for job in jobs:
             if job.id in self.active_downloads:

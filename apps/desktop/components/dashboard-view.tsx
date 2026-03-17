@@ -7,16 +7,29 @@ import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { JobRecord, ScanRecord } from "@/types/app";
 
-function describeAssets(job: JobRecord) {
-  const names = job.assets.map((asset) => asset.filename);
-  if (names.length === 0) {
-    return "No files attached";
+function normalizeFinish(value?: string | null) {
+  const normalized = (value || "").trim().toLowerCase().replace(/\s*[-–—]+\s*$/, "");
+  switch (normalized) {
+    case "gloss":
+    case "glossy":
+      return "Glossy";
+    case "lustre":
+    case "luster":
+      return "Lustre";
+    case "matte":
+    case "matt":
+      return "Matte";
+    case "satin":
+      return "Satin";
+    case "silk":
+      return "Silk";
+    case "pearl":
+      return "Pearl";
+    case "metallic":
+      return "Metallic";
+    default:
+      return null;
   }
-  if (names.length <= 2) {
-    return names.join(", ");
-  }
-
-  return `${names[0]} and ${names.length - 1} more`;
 }
 
 function normalizePrinterRoute(value?: string | null) {
@@ -34,6 +47,17 @@ function inferOutputRoute(job: JobRecord) {
   }
 
   return "";
+}
+
+function inferFinish(job: JobRecord) {
+  for (const item of job.items) {
+    const finish = normalizeFinish(item.finish);
+    if (finish) {
+      return finish;
+    }
+  }
+
+  return normalizeFinish(job.productName);
 }
 
 function StatCard({
@@ -70,14 +94,7 @@ function StatCard({
 }
 
 function CompactJobRow({ job }: { job: JobRecord }) {
-  const route = inferOutputRoute(job);
-  const routeLabel = route === "fuji_lab" || route === "fuji"
-    ? "Fuji"
-    : route === "sublimation"
-      ? "Sublimation"
-      : route === "large_format"
-        ? "Large Format"
-        : "Default";
+  const finish = inferFinish(job);
   const sourceBadgeClass = inferReceiverJobSource(job) === "photozone"
     ? "border-blue-500/20 bg-blue-500/10 text-blue-100"
     : inferReceiverJobSource(job) === "pzpro"
@@ -98,8 +115,10 @@ function CompactJobRow({ job }: { job: JobRecord }) {
         <p className="truncate text-sm text-slate-400">{job.customerName || job.id}</p>
       </div>
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-slate-100">{job.productName}</p>
-        <p className="truncate text-xs text-slate-500">{describeAssets(job)} · {routeLabel}</p>
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-medium text-slate-100">{job.productName}</p>
+          {finish ? <span className="crm-pill crm-pill--finish">{finish}</span> : null}
+        </div>
       </div>
       <div className="md:justify-self-end">
         <StatusBadge value={job.status} kind="job" />
