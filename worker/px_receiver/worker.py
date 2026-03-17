@@ -428,6 +428,12 @@ class WorkerRuntime:
         self.snapshot.queue_count = len([job for job in jobs if job.status != JobStatus.COMPLETED])
         self.emit_log(LogLevel.INFO, f"Fetched {len(jobs)} jobs from backend", "poller")
 
+        known_job_ids = {item.id for item in self.snapshot.jobs}
+        for job in jobs:
+            if job.id not in known_job_ids:
+                self.emit_job(job)
+                known_job_ids.add(job.id)
+
         for job in jobs:
             if self.should_skip_job(job):
                 continue
