@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from px_receiver.models import WorkerSettings
@@ -65,4 +66,11 @@ def build_runtime_paths(config_path: Path) -> dict[str, Path]:
 
 
 def expand_path(value: str) -> Path:
-    return Path(value).expanduser().resolve()
+    path = Path(value).expanduser()
+
+    # UNC and mapped-network paths on Windows can raise OSError 22 when forced
+    # through resolve() even though the path string itself is valid.
+    if os.name == "nt":
+        return path
+
+    return path.resolve()
