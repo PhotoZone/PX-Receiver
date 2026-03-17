@@ -446,6 +446,7 @@ class WorkerRuntime:
                 machine_id=payload.get("machineId", self.settings.machine_id),
                 machine_name=payload.get("machineName", self.settings.machine_name),
                 api_token=payload.get("apiToken", self.settings.api_token),
+                shipstation_api_key=payload.get("shipstationApiKey", self.settings.shipstation_api_key),
                 machine_auth_token=payload.get("machineAuthToken", self.settings.machine_auth_token),
                 polling_interval_seconds=int(payload.get("pollingIntervalSeconds", self.settings.polling_interval_seconds)),
                 download_directory=payload.get("downloadDirectory", self.settings.download_directory),
