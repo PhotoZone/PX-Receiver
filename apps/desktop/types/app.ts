@@ -98,6 +98,7 @@ export type JobRecord = {
   storeId?: string | null;
   targetMachineId?: string | null;
   targetLocation?: string | null;
+  orderedAt?: string | null;
   productName: string;
   printer?: string | null;
   customerName?: string | null;

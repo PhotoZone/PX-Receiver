@@ -201,6 +201,7 @@ class JobRecord:
     store_id: str | None
     target_machine_id: str | None
     target_location: str | None
+    ordered_at: str | None
     product_name: str
     printer: str | None
     customer_name: str | None
@@ -237,6 +238,7 @@ class JobRecord:
             store_id=payload.get("storeId", payload.get("store_id")),
             target_machine_id=payload.get("targetMachineId", payload.get("target_machine_id")),
             target_location=payload.get("targetLocation", payload.get("target_location")),
+            ordered_at=payload.get("orderedAt", payload.get("ordered_at")),
             product_name=payload.get("productName", payload.get("product_name", "Unknown product")),
             printer=payload.get("printer"),
             customer_name=payload.get("customerName", payload.get("customer_name")),

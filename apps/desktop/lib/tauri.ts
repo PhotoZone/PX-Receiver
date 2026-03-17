@@ -438,6 +438,7 @@ type SearchJobRecord = Omit<JobRecord, "assets" | "items" | "printInstructions">
   store_id?: string | null;
   target_machine_id?: string | null;
   target_location?: string | null;
+  ordered_at?: string | null;
   order_id?: string;
   product_name?: string;
   customer_name?: string | null;
@@ -506,6 +507,7 @@ function normalizeSearchJobRecord(job: SearchJobRecord): JobRecord {
     storeId: job.storeId ?? job.store_id ?? null,
     targetMachineId: job.targetMachineId ?? job.target_machine_id ?? null,
     targetLocation: job.targetLocation ?? job.target_location ?? null,
+    orderedAt: job.orderedAt ?? job.ordered_at ?? null,
     productName: job.productName ?? job.product_name ?? "",
     customerName: job.customerName ?? job.customer_name ?? null,
     customerEmail: job.customerEmail ?? job.customer_email ?? null,

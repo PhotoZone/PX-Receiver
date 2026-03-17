@@ -15,6 +15,31 @@ const borderKeywords = ["borderless", "white border", "black border", "no border
 const imageExtensionPattern = /\.(avif|bmp|gif|heic|heif|jpe?g|png|svg|tiff?|webp)(?:$|[?#])/i;
 const remoteUrlPattern = /^(https?:|data:|blob:)/i;
 
+function normalizeFinish(value?: string | null) {
+  const normalized = (value || "").trim().toLowerCase().replace(/\s*[-–—]+\s*$/, "");
+  switch (normalized) {
+    case "gloss":
+    case "glossy":
+      return "Glossy";
+    case "lustre":
+    case "luster":
+      return "Lustre";
+    case "matte":
+    case "matt":
+      return "Matte";
+    case "satin":
+      return "Satin";
+    case "silk":
+      return "Silk";
+    case "pearl":
+      return "Pearl";
+    case "metallic":
+      return "Metallic";
+    default:
+      return value?.trim() || null;
+  }
+}
+
 function toTitleCase(value: string) {
   return value
     .split(/\s+/)
@@ -36,7 +61,7 @@ function extractMatch(source: string, patterns: string[]) {
 
 function inferFallbackItem(job: JobRecord): JobItemRecord {
   const raw = job.productName.trim();
-  const finish = extractMatch(raw, finishKeywords);
+  const finish = normalizeFinish(extractMatch(raw, finishKeywords));
   const explicitBorder = raw.match(/border\s*:\s*([^,|/;]+)/i)?.[1]?.trim() ?? null;
   const border = explicitBorder ? toTitleCase(explicitBorder) : extractMatch(raw, borderKeywords);
   const name = raw
@@ -58,7 +83,11 @@ function inferFallbackItem(job: JobRecord): JobItemRecord {
 }
 
 function getDisplayItems(job: JobRecord) {
-  return job.items.length > 0 ? job.items : [inferFallbackItem(job)];
+  const items = job.items.length > 0 ? job.items : [inferFallbackItem(job)];
+  return items.map((item) => ({
+    ...item,
+    finish: normalizeFinish(item.finish),
+  }));
 }
 
 function getFilterLabel(filter: JobStatus | "all") {
@@ -469,7 +498,7 @@ function JobRow({
   onOpen: () => void;
 }) {
   const items = getDisplayItems(job);
-  const orderedAt = formatOrderDateParts(job.createdAt);
+  const orderedAt = formatOrderDateParts(job.orderedAt || job.createdAt);
   const canReprint = ["completed", "downloaded", "processing", "failed"].includes(job.status) && !isPending;
   const canPrintPackingSlip = job.assets.some((asset) => asset.kind === "pdf" && Boolean(asset.localPath)) && !isPending;
   const canPrintLabel = Boolean(job.shipmentId || job.orderId) && !isPending;

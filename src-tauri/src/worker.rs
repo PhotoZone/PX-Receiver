@@ -175,6 +175,7 @@ pub struct JobRecord {
     pub store_id: Option<String>,
     pub target_machine_id: Option<String>,
     pub target_location: Option<String>,
+    pub ordered_at: Option<String>,
     pub product_name: String,
     pub printer: Option<String>,
     pub customer_name: Option<String>,

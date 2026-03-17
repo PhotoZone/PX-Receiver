@@ -271,16 +271,57 @@ class WorkerRuntime:
         self.snapshot.scanner.port = port
         self.emit_scanner_status()
 
+    def find_job_for_scan(self, code: str) -> JobRecord | None:
+        normalized = str(code or "").strip()
+        if not normalized:
+            return None
+
+        normalized_lower = normalized.casefold()
+        for job in self.snapshot.jobs:
+            candidates = {
+                str(job.order_id or "").strip(),
+                str(job.shipment_id or "").strip(),
+                str(job.id or "").strip(),
+            }
+            candidates = {candidate for candidate in candidates if candidate}
+            if any(candidate.casefold() == normalized_lower for candidate in candidates):
+                return job
+
+        return None
+
     def handle_scan(self, code: str, source: str) -> None:
+        matched_job = self.find_job_for_scan(code)
+        if matched_job is None:
+            scan = ScanRecord(
+                id=str(uuid4()),
+                code=code,
+                source=source,
+                status="unmatched",
+                message="Barcode received, but no matching job was found.",
+            )
+            self.emit_log(LogLevel.WARNING, f"Barcode scanned with no matching job: {code}", "scanner")
+            self.emit_scan(scan)
+            return
+
         scan = ScanRecord(
             id=str(uuid4()),
             code=code,
             source=source,
-            status="captured",
-            message="Barcode received by receiver worker",
+            status="matched",
+            message=f"Matched {matched_job.order_id}; printing label.",
         )
         self.emit_log(LogLevel.INFO, f"Barcode scanned: {code}", "scanner")
         self.emit_scan(scan)
+        self.safe_backend_report_job_event(
+            matched_job.id,
+            "scan_confirmed",
+            {
+                "scanned_at": now_iso(),
+                "scan_code": code,
+                "machine_id": self.settings.machine_id,
+            },
+        )
+        self.print_shipping_label(matched_job.id)
 
     def register(self) -> None:
         try:
@@ -490,6 +531,9 @@ class WorkerRuntime:
                 continue
             if job.status in {JobStatus.PENDING, JobStatus.FAILED} or job.id in self.retry_queue:
                 self.receive_job(job)
+                continue
+            if job.status in {JobStatus.DOWNLOADED, JobStatus.PROCESSING}:
+                self.resume_dispatchable_job(job, report_backend_status=job.status == JobStatus.DOWNLOADED)
 
         self.snapshot.last_sync_at = now_iso()
         if not self.snapshot.active_job_id:
@@ -620,6 +664,53 @@ class WorkerRuntime:
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed during receive: {exc}", "receiver")
+            self.snapshot.health = HealthState.ERROR
+        finally:
+            self.snapshot.active_job_id = None
+            self.snapshot.health = HealthState.PAUSED if self.snapshot.polling_paused else HealthState.HEALTHY
+            self.snapshot.current_activity = "Receiving orders, output paused" if self.snapshot.polling_paused else "Idle and waiting for jobs"
+            self.emit_health()
+
+    def resume_dispatchable_job(self, job: JobRecord, *, report_backend_status: bool) -> None:
+        self.snapshot.active_job_id = job.id
+        self.snapshot.health = HealthState.PROCESSING
+        self.snapshot.current_activity = f"Resuming {job.id}"
+        self.emit_health()
+
+        local_job = next((item for item in self.snapshot.jobs if item.id == job.id), job)
+        self.local_state.mark_inflight(job.id, "recover", local_job)
+        self.local_state.save(self.paths["state"])
+        try:
+            dispatch_job = local_job
+            if not self.has_all_local_assets(local_job):
+                recovering = self.update_job_state(
+                    local_job,
+                    JobStatus.DOWNLOADING,
+                    local_path=None,
+                    local_paths={},
+                    assets=job.assets,
+                    last_error=None,
+                )
+                dispatch_job, _pdf_paths = self.download_job_assets(recovering)
+                self.emit_log(LogLevel.INFO, f"Job {job.id} re-downloaded for dispatch", "receiver")
+
+            dispatch_job = self.update_job_state(
+                dispatch_job,
+                JobStatus.DOWNLOADED,
+                local_path=dispatch_job.local_path,
+                local_paths=dispatch_job.local_paths,
+                assets=dispatch_job.assets,
+                last_error=None,
+            )
+            succeeded = self.dispatch_job(dispatch_job, report_backend_status=report_backend_status)
+            if succeeded:
+                self.local_state.clear_inflight(job.id)
+                self.local_state.save(self.paths["state"])
+        except Exception as exc:  # noqa: BLE001
+            failed = self.update_job_state(local_job, JobStatus.FAILED, last_error=str(exc))
+            self.local_state.clear_inflight(job.id)
+            self.local_state.save(self.paths["state"])
+            self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed while resuming dispatch: {exc}", "receiver")
             self.snapshot.health = HealthState.ERROR
         finally:
             self.snapshot.active_job_id = None
