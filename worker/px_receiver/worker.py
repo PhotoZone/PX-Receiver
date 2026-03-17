@@ -237,6 +237,35 @@ class WorkerRuntime:
     def configure_backend(self) -> None:
         self.backend = build_backend_client(self.settings)
 
+    def safe_backend_update_job_status(self, job_id: str, status: JobStatus, message: str | None = None) -> bool:
+        try:
+            self.backend.update_job_status(job_id, status, message)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(
+                LogLevel.WARNING,
+                f"Backend status update failed for {job_id} -> {status.value}: {exc}",
+                "backend",
+            )
+            return False
+
+    def safe_backend_report_job_event(
+        self,
+        job_id: str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> bool:
+        try:
+            self.backend.report_job_event(job_id, event_type, payload)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(
+                LogLevel.WARNING,
+                f"Backend event report failed for {job_id} ({event_type}): {exc}",
+                "backend",
+            )
+            return False
+
     def handle_scanner_status(self, status: str, port: str | None) -> None:
         self.snapshot.scanner.status = status
         self.snapshot.scanner.port = port
@@ -430,6 +459,12 @@ class WorkerRuntime:
             )
             return False
 
+    def has_all_local_assets(self, job: JobRecord) -> bool:
+        return bool(job.assets) and all(
+            asset.local_path and Path(asset.local_path).exists()
+            for asset in job.assets
+        )
+
     def poll_once(self) -> None:
         self.snapshot.last_sync_at = now_iso()
         self.snapshot.current_activity = "Receiving assigned jobs"
@@ -570,14 +605,14 @@ class WorkerRuntime:
         try:
             self.backend.claim_job(job.id)
             job = self.update_job_state(job, JobStatus.DOWNLOADING)
-            self.backend.update_job_status(job.id, JobStatus.DOWNLOADING)
+            self.safe_backend_update_job_status(job.id, JobStatus.DOWNLOADING)
             job, _pdf_paths = self.download_job_assets(job)
-            self.backend.update_job_status(job.id, JobStatus.DOWNLOADED)
+            self.safe_backend_update_job_status(job.id, JobStatus.DOWNLOADED)
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.INFO, f"Job {job.id} received and held locally", "receiver")
         except Exception as exc:  # noqa: BLE001
-            self.backend.update_job_status(job.id, JobStatus.FAILED, str(exc))
+            self.safe_backend_update_job_status(job.id, JobStatus.FAILED, str(exc))
             failed = self.update_job_state(job, JobStatus.FAILED, last_error=str(exc))
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
@@ -609,7 +644,7 @@ class WorkerRuntime:
                 assets=job.assets,
             )
             if report_backend_status:
-                self.backend.update_job_status(job.id, JobStatus.PROCESSING)
+                self.safe_backend_update_job_status(job.id, JobStatus.PROCESSING)
 
             for asset in job.assets:
                 if asset.kind != AssetKind.PDF:
@@ -638,7 +673,7 @@ class WorkerRuntime:
             return True
         except Exception as exc:  # noqa: BLE001
             if report_backend_status:
-                self.backend.update_job_status(job.id, JobStatus.FAILED, str(exc))
+                self.safe_backend_update_job_status(job.id, JobStatus.FAILED, str(exc))
                 failed = self.update_job_state(job, JobStatus.FAILED, last_error=str(exc))
                 self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed during dispatch: {exc}", "output")
             elif restore_on_failure is not None:
@@ -672,7 +707,7 @@ class WorkerRuntime:
             return
 
         self.emit_log(LogLevel.INFO, f"Starting reprint for {job_id}", "reprint")
-        self.backend.report_job_event(
+        self.safe_backend_report_job_event(
             job_id,
             "reprint_requested",
             {
@@ -694,25 +729,35 @@ class WorkerRuntime:
         try:
             self.local_state.processed_jobs.pop(job.id, None)
             self.local_state.save(self.paths["state"])
-            reprint_job = self.update_job_state(
-                job,
-                JobStatus.DOWNLOADING,
-                local_path=None,
-                local_paths={},
-                assets=job.assets,
-                last_error=None,
-            )
-            self.backend.update_job_status(job.id, JobStatus.DOWNLOADING)
-            reprint_job, _pdf_paths = self.download_job_assets(reprint_job)
-            self.backend.update_job_status(job.id, JobStatus.DOWNLOADED)
-            self.emit_log(LogLevel.INFO, f"Job {job.id} re-downloaded for reprint", "reprint")
-            succeeded = self.dispatch_job(reprint_job, report_backend_status=True, restore_on_failure=original_job)
+            reprint_job = original_job
+            if self.has_all_local_assets(original_job):
+                self.emit_log(LogLevel.INFO, f"Using held files for reprint of {job.id}", "reprint")
+            else:
+                reprint_job = self.update_job_state(
+                    job,
+                    JobStatus.DOWNLOADING,
+                    local_path=None,
+                    local_paths={},
+                    assets=job.assets,
+                    last_error=None,
+                )
+                reprint_job, _pdf_paths = self.download_job_assets(reprint_job)
+                self.emit_log(LogLevel.INFO, f"Job {job.id} re-downloaded for reprint", "reprint")
+
+            succeeded = self.dispatch_job(reprint_job, report_backend_status=False, restore_on_failure=original_job)
             if succeeded:
+                self.update_job_state(
+                    original_job,
+                    original_job.status,
+                    local_path=reprint_job.local_path,
+                    local_paths=reprint_job.local_paths,
+                    assets=reprint_job.assets,
+                    last_error=original_job.last_error,
+                )
                 self.local_state.clear_inflight(job.id)
                 self.local_state.save(self.paths["state"])
         except Exception as exc:  # noqa: BLE001
             reprint_error = str(exc)
-            self.backend.update_job_status(job.id, JobStatus.FAILED, reprint_error)
             restored = self.update_job_state(
                 original_job,
                 original_job.status,
@@ -731,7 +776,7 @@ class WorkerRuntime:
                 self.local_state.save(self.paths["state"])
             if not succeeded and reprint_error is None:
                 reprint_error = "Reprint dispatch failed"
-            self.backend.report_job_event(
+            self.safe_backend_report_job_event(
                 job_id,
                 "reprint_completed" if succeeded else "reprint_failed",
                 {
@@ -752,7 +797,7 @@ class WorkerRuntime:
             return
 
         self.emit_log(LogLevel.INFO, f"Starting shipping label print for {job_id}", "label")
-        self.backend.report_job_event(
+        self.safe_backend_report_job_event(
             job_id,
             "shipping_label_requested",
             {
@@ -779,7 +824,7 @@ class WorkerRuntime:
                 ),
             )
             self.emit_log(LogLevel.INFO, f"Printed shipping label for {job.order_id}", "label")
-            self.backend.report_job_event(
+            self.safe_backend_report_job_event(
                 job_id,
                 "shipping_label_printed",
                 {
@@ -789,7 +834,7 @@ class WorkerRuntime:
             )
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Shipping label print failed for {job.order_id}: {exc}", "label")
-            self.backend.report_job_event(
+            self.safe_backend_report_job_event(
                 job_id,
                 "shipping_label_failed",
                 {
@@ -830,7 +875,7 @@ class WorkerRuntime:
 
             print_pdf(Path(pdf_asset.local_path), instructions)
             self.emit_log(LogLevel.INFO, f"Printed packing slip for {job.order_id}", "printer")
-            self.backend.report_job_event(
+            self.safe_backend_report_job_event(
                 job_id,
                 "packing_slip_printed",
                 {
@@ -840,7 +885,7 @@ class WorkerRuntime:
             )
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Packing slip print failed for {job.order_id}: {exc}", "printer")
-            self.backend.report_job_event(
+            self.safe_backend_report_job_event(
                 job_id,
                 "packing_slip_failed",
                 {
@@ -867,8 +912,8 @@ class WorkerRuntime:
                 assets=job.assets,
                 last_error=None,
             )
-            self.backend.update_job_status(job.id, JobStatus.COMPLETED, "Force completed from desktop UI")
-            self.backend.report_job_event(
+            self.safe_backend_update_job_status(job.id, JobStatus.COMPLETED, "Force completed from desktop UI")
+            self.safe_backend_report_job_event(
                 job_id,
                 "issue_resolved",
                 {
