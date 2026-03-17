@@ -475,6 +475,9 @@ class WorkerRuntime:
         jobs = self.backend.fetch_jobs()
         self.snapshot.queue_count = len([job for job in jobs if job.status != JobStatus.COMPLETED])
         self.emit_log(LogLevel.INFO, f"Fetched {len(jobs)} jobs from backend", "poller")
+        if jobs:
+            summary = ", ".join(f"{job.id}:{job.status.value}" for job in jobs[:10])
+            self.emit_log(LogLevel.INFO, f"Backend jobs: {summary}", "poller")
 
         known_job_ids = {item.id for item in self.snapshot.jobs}
         for job in jobs:
