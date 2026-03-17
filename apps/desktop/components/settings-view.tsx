@@ -471,6 +471,16 @@ export function SettingsView() {
         </label>
 
         <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-700">ShipStation API key</span>
+          <input
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
+            type="password"
+            value={formState.shipstationApiKey}
+            onChange={(event) => updateField("shipstationApiKey", event.target.value)}
+          />
+        </label>
+
+        <label className="space-y-2">
           <span className="text-sm font-medium text-slate-700">Polling interval (seconds)</span>
           <input className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent" type="number" min={5} max={300} value={formState.pollingIntervalSeconds} onChange={(event) => updateField("pollingIntervalSeconds", Number(event.target.value))} />
         </label>

@@ -12,6 +12,7 @@ export const defaultSnapshot: WorkerSnapshot = {
     machineId: "machine-demo-001",
     machineName: "PX Receiver 01",
     apiToken: "",
+    shipstationApiKey: "",
     machineAuthToken: "",
     pollingIntervalSeconds: 20,
     downloadDirectory: "~/Downloads/px-orders",

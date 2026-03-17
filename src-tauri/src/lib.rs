@@ -13,6 +13,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_single_instance;
 use uuid::Uuid;
 use worker::{
     AppStateStore, HealthState, LogLevel, LogRecord, WorkerHandle, WorkerSettings, WorkerSnapshot,
@@ -842,7 +843,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .items(&[&open_item, &hide_item, &quit_item])
         .build()?;
 
-    TrayIconBuilder::new()
+    let mut tray_builder = TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -861,8 +862,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 app.exit(0);
             }
             _ => {}
-        })
-        .build(app)?;
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        tray_builder = tray_builder.icon(icon.clone());
+    }
+
+    tray_builder.build(app)?;
 
     Ok(())
 }
@@ -912,6 +918,13 @@ fn expand_user_path(value: &str) -> std::path::PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             build_tray(app.handle())?;
             let runtime = launch_runtime(app.handle())

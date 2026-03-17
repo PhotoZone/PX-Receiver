@@ -77,6 +77,8 @@ pub struct WorkerSettings {
     pub machine_name: String,
     pub api_token: String,
     #[serde(default)]
+    pub shipstation_api_key: String,
+    #[serde(default)]
     pub machine_auth_token: String,
     pub polling_interval_seconds: u64,
     pub download_directory: String,
@@ -101,6 +103,7 @@ impl Default for WorkerSettings {
             machine_id: "machine-demo-001".into(),
             machine_name: "PX Receiver 01".into(),
             api_token: String::new(),
+            shipstation_api_key: String::new(),
             machine_auth_token: String::new(),
             polling_interval_seconds: 20,
             download_directory: "~/Downloads/px-orders".into(),

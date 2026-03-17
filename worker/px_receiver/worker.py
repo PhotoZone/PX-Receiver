@@ -308,7 +308,7 @@ class WorkerRuntime:
             code=code,
             source=source,
             status="matched",
-            message=f"Matched {matched_job.order_id}; printing label.",
+            message=f"Matched {matched_job.order_id}; requesting label.",
         )
         self.emit_log(LogLevel.INFO, f"Barcode scanned: {code}", "scanner")
         self.emit_scan(scan)
@@ -901,7 +901,11 @@ class WorkerRuntime:
         )
 
         try:
-            label_path = create_shipping_label_pdf(shipment_id=job.shipment_id, order_number=job.order_id)
+            label_path = create_shipping_label_pdf(
+                shipment_id=job.shipment_id,
+                order_number=job.order_id,
+                api_key=self.settings.shipstation_api_key,
+            )
             print_pdf(
                 label_path,
                 replace(

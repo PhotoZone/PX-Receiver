@@ -67,6 +67,7 @@ class WorkerSettings:
     machine_id: str = "machine-demo-001"
     machine_name: str = "PX Receiver 01"
     api_token: str = ""
+    shipstation_api_key: str = ""
     machine_auth_token: str = ""
     polling_interval_seconds: int = 20
     download_directory: str = "~/Downloads/px-orders"

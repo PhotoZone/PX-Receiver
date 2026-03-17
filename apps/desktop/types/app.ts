@@ -18,6 +18,7 @@ export type WorkerSettings = {
   machineId: string;
   machineName: string;
   apiToken: string;
+  shipstationApiKey: string;
   machineAuthToken?: string;
   pollingIntervalSeconds: number;
   downloadDirectory: string;
