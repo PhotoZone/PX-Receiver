@@ -19,6 +19,7 @@ from px_receiver.services.filesystem import cache_external_shipping_label_pdf, c
 from px_receiver.services.printer import print_pdf
 from px_receiver.services.scanner import ScannerService
 from px_receiver.services.shipstation import create_shipping_label_pdf
+from px_receiver.services.slack import notify_order_failure
 from px_receiver.state import LocalState
 
 MAX_SCAN_ACTIONS_PER_SESSION = 1
@@ -60,6 +61,7 @@ class WorkerRuntime:
         self.stop_event = threading.Event()
         self.retry_queue: set[str] = set()
         self.scan_action_counts: dict[str, int] = {}
+        self.alerted_failure_keys: set[str] = set()
         self.active_downloads: dict[str, threading.Thread] = {}
         self.next_poll_at = 0.0
         self.scanner = ScannerService(
@@ -208,6 +210,36 @@ class WorkerRuntime:
 
     def emit_scanner_status(self) -> None:
         self.emit("scanner", self.snapshot.scanner.to_payload())
+
+    def clear_failure_alerts(self, job_id: str) -> None:
+        self.alerted_failure_keys = {
+            key for key in self.alerted_failure_keys if not key.startswith(f"{job_id}:")
+        }
+
+    def alert_order_failure(self, job: JobRecord, *, stage: str, error_message: str) -> None:
+        key = f"{job.id}:{stage}:{error_message.strip()}"
+        if not error_message.strip() or key in self.alerted_failure_keys:
+            return
+
+        try:
+            notify_order_failure(
+                self.settings,
+                job,
+                stage=stage,
+                error_message=error_message,
+            )
+            self.alerted_failure_keys.add(key)
+            self.emit_log(
+                LogLevel.INFO,
+                f"Slack alert sent for {job.id} ({stage})",
+                "slack",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(
+                LogLevel.WARNING,
+                f"Slack alert failed for {job.id} ({stage}): {exc}",
+                "slack",
+            )
 
     def emit_job(self, job: JobRecord) -> None:
         self.snapshot.jobs = [existing for existing in self.snapshot.jobs if existing.id != job.id]
@@ -551,6 +583,7 @@ class WorkerRuntime:
                 machine_name=payload.get("machineName", self.settings.machine_name),
                 api_token=payload.get("apiToken", self.settings.api_token),
                 shipstation_api_key=payload.get("shipstationApiKey", self.settings.shipstation_api_key),
+                slack_webhook_url=payload.get("slackWebhookUrl", self.settings.slack_webhook_url),
                 machine_auth_token=payload.get("machineAuthToken", self.settings.machine_auth_token),
                 polling_interval_seconds=int(payload.get("pollingIntervalSeconds", self.settings.polling_interval_seconds)),
                 download_directory=payload.get("downloadDirectory", self.settings.download_directory),
@@ -675,6 +708,7 @@ class WorkerRuntime:
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed during receive: {error_message}", "receiver")
+            self.alert_order_failure(failed, stage="receive", error_message=error_message)
             self.snapshot.health = HealthState.ERROR
 
     def start_background_receive(self, job: JobRecord) -> bool:
@@ -694,6 +728,7 @@ class WorkerRuntime:
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed before background receive: {exc}", "receiver")
+            self.alert_order_failure(failed, stage="receive", error_message=str(exc))
             self.snapshot.health = HealthState.ERROR
             return False
 
@@ -828,6 +863,8 @@ class WorkerRuntime:
             updated_at=now_iso(),
             attempts=job.attempts + (1 if status == JobStatus.FAILED else 0),
         )
+        if status != JobStatus.FAILED:
+            self.clear_failure_alerts(job.id)
         self.emit_job(updated)
         return updated
 
@@ -931,6 +968,7 @@ class WorkerRuntime:
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed during receive: {exc}", "receiver")
+            self.alert_order_failure(failed, stage="receive", error_message=str(exc))
             self.snapshot.health = HealthState.ERROR
         finally:
             self.snapshot.active_job_id = None
@@ -978,6 +1016,7 @@ class WorkerRuntime:
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed while resuming dispatch: {exc}", "receiver")
+            self.alert_order_failure(failed, stage="dispatch", error_message=str(exc))
             self.snapshot.health = HealthState.ERROR
         finally:
             self.snapshot.active_job_id = None
@@ -1037,6 +1076,7 @@ class WorkerRuntime:
                 self.safe_backend_update_job_status(job.id, JobStatus.FAILED, str(exc))
                 failed = self.update_job_state(job, JobStatus.FAILED, last_error=str(exc))
                 self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed during dispatch: {exc}", "output")
+                self.alert_order_failure(failed, stage="dispatch", error_message=str(exc))
             elif restore_on_failure is not None:
                 restored = self.update_job_state(
                     restore_on_failure,
@@ -1130,6 +1170,7 @@ class WorkerRuntime:
             self.local_state.clear_inflight(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.ERROR, f"Job {restored.id} failed during reprint receive: {exc}", "reprint")
+            self.alert_order_failure(restored, stage="reprint", error_message=str(exc))
             self.snapshot.health = HealthState.ERROR
         finally:
             if not succeeded:

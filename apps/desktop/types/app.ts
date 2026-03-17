@@ -19,6 +19,7 @@ export type WorkerSettings = {
   machineName: string;
   apiToken: string;
   shipstationApiKey: string;
+  slackWebhookUrl?: string;
   machineAuthToken?: string;
   pollingIntervalSeconds: number;
   downloadDirectory: string;

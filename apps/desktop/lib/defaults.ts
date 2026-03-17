@@ -13,6 +13,7 @@ export const defaultSnapshot: WorkerSnapshot = {
     machineName: "PX Receiver 01",
     apiToken: "",
     shipstationApiKey: "",
+    slackWebhookUrl: "",
     machineAuthToken: "",
     pollingIntervalSeconds: 20,
     downloadDirectory: "~/Downloads/px-orders",

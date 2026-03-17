@@ -79,6 +79,8 @@ pub struct WorkerSettings {
     #[serde(default)]
     pub shipstation_api_key: String,
     #[serde(default)]
+    pub slack_webhook_url: String,
+    #[serde(default)]
     pub machine_auth_token: String,
     pub polling_interval_seconds: u64,
     pub download_directory: String,
@@ -104,6 +106,7 @@ impl Default for WorkerSettings {
             machine_name: "PX Receiver 01".into(),
             api_token: String::new(),
             shipstation_api_key: String::new(),
+            slack_webhook_url: String::new(),
             machine_auth_token: String::new(),
             polling_interval_seconds: 20,
             download_directory: "~/Downloads/px-orders".into(),
