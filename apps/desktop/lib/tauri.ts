@@ -1,7 +1,7 @@
 "use client";
 
 import { defaultSnapshot } from "@/lib/defaults";
-import type { AppUpdateStatus, InstalledPrinter, JobRecord, ReceiverRoutesResponse, WorkerEvent, WorkerSnapshot, WorkerSettings } from "@/types/app";
+import type { AppUpdateStatus, InstalledPrinter, JobRecord, ReceiverRoutesResponse, ReceiverStoreLoginResponse, WorkerEvent, WorkerSnapshot, WorkerSettings } from "@/types/app";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const localAssetPreviewCache = new Map<string, string>();
@@ -164,7 +164,7 @@ export async function checkForAppUpdate() {
   return invoke<AppUpdateStatus>("check_for_app_update");
 }
 
-export async function openFolderInOs(path: string) {
+export async function openPathInOs(path: string) {
   if (!path) {
     return;
   }
@@ -174,7 +174,7 @@ export async function openFolderInOs(path: string) {
   }
 
   const { invoke } = await resolveCore();
-  await invoke("open_folder_in_os", { path });
+  await invoke("open_path_in_os", { path });
 }
 
 export async function pickFolder(initialPath?: string | null) {
@@ -346,10 +346,6 @@ async function searchReceiverOrdersViaFetch(backendUrl: string, token: string, q
 }
 
 export async function fetchReceiverRoutes(settings: Pick<WorkerSettings, "backendUrl" | "apiToken" | "machineAuthToken" | "useMockBackend">) {
-  if (settings.useMockBackend) {
-    return { routes: [], stores: [], manualOverrideAllowed: true } satisfies ReceiverRoutesResponse;
-  }
-
   const backendUrl = settings.backendUrl.trim().replace(/\/+$/, "");
   const token = (settings.machineAuthToken || settings.apiToken || "").trim();
   if (!backendUrl || !token) {
@@ -380,6 +376,45 @@ export async function fetchReceiverRoutes(settings: Pick<WorkerSettings, "backen
   }
 
   return response.json() as Promise<ReceiverRoutesResponse>;
+}
+
+export async function loginReceiverStore(backendUrl: string, username: string, password: string) {
+  const normalizedBackendUrl = backendUrl.trim().replace(/\/+$/, "");
+  const normalizedUsername = username.trim();
+  if (!normalizedBackendUrl || !normalizedUsername || !password) {
+    throw new Error("Backend URL, username, and password are required.");
+  }
+
+  if (isTauri()) {
+    const { invoke } = await resolveCore();
+    return invoke<ReceiverStoreLoginResponse>("login_receiver_store_native", {
+      backendUrl: normalizedBackendUrl,
+      username: normalizedUsername,
+      password,
+    });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${normalizedBackendUrl}/api/receiver/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: normalizedUsername, password }),
+    });
+  } catch (error) {
+    throw new Error(`Failed to sign in to PX receiver bootstrap at ${normalizedBackendUrl}: ${describeFetchError(error)}`);
+  }
+
+  if (!response.ok) {
+    const detail = await readErrorDetail(response);
+    throw new Error(detail
+      ? `PX store login failed (${response.status}): ${detail}`
+      : `PX store login failed (${response.status})`);
+  }
+
+  return response.json() as Promise<ReceiverStoreLoginResponse>;
 }
 
 type PxSearchStatus = {
@@ -548,10 +583,6 @@ export async function searchReceiverOrders(
   settings: Pick<WorkerSettings, "backendUrl" | "apiToken" | "machineAuthToken" | "useMockBackend" | "machineId">,
   query: string,
 ) {
-  if (settings.useMockBackend) {
-    return [] as JobRecord[];
-  }
-
   const backendUrl = settings.backendUrl.trim().replace(/\/+$/, "");
   const token = (settings.machineAuthToken || settings.apiToken || "").trim();
   const normalizedQuery = query.trim();

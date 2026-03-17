@@ -2,20 +2,20 @@ import { cn } from "@/lib/utils";
 import type { HealthState, JobStatus } from "@/types/app";
 
 const jobStyles: Record<JobStatus, string> = {
-  pending: "bg-slate-100 text-slate-700",
-  downloading: "bg-cyan-100 text-cyan-800",
-  downloaded: "bg-sky-100 text-sky-800",
-  processing: "bg-amber-100 text-amber-800",
-  completed: "bg-emerald-100 text-emerald-800",
-  failed: "bg-rose-100 text-rose-800",
+  pending: "border border-slate-700 bg-slate-900/90 text-slate-200",
+  downloading: "border border-cyan-500/30 bg-cyan-500/15 text-cyan-200",
+  downloaded: "border border-sky-500/30 bg-sky-500/15 text-sky-200",
+  processing: "border border-amber-500/30 bg-amber-500/15 text-amber-200",
+  completed: "border border-emerald-500/30 bg-emerald-500/15 text-emerald-200",
+  failed: "border border-rose-500/30 bg-rose-500/15 text-rose-200",
 };
 
 const healthStyles: Record<HealthState, string> = {
-  healthy: "bg-emerald-100 text-emerald-800",
-  paused: "bg-amber-100 text-amber-800",
-  processing: "bg-cyan-100 text-cyan-800",
-  offline: "bg-slate-200 text-slate-700",
-  error: "bg-rose-100 text-rose-800",
+  healthy: "border border-emerald-500/30 bg-emerald-500/15 text-emerald-200",
+  paused: "border border-amber-500/30 bg-amber-500/15 text-amber-200",
+  processing: "border border-cyan-500/30 bg-cyan-500/15 text-cyan-200",
+  offline: "border border-slate-700 bg-slate-900/90 text-slate-300",
+  error: "border border-rose-500/30 bg-rose-500/15 text-rose-200",
 };
 
 type Props = {
@@ -36,7 +36,7 @@ export function StatusBadge({ value, kind }: Props) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]",
+        "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase leading-none tracking-[0.18em] whitespace-nowrap",
         style,
       )}
     >

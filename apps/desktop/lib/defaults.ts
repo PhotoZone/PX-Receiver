@@ -8,7 +8,7 @@ export const defaultSnapshot: WorkerSnapshot = {
   activeJobId: null,
   currentActivity: "Starting worker",
   settings: {
-    backendUrl: "https://backend.example.com",
+    backendUrl: "https://px.photozone.co.uk",
     machineId: "machine-demo-001",
     machineName: "PX Receiver 01",
     apiToken: "",
@@ -22,7 +22,7 @@ export const defaultSnapshot: WorkerSnapshot = {
     largeFormatHotFolderPath: "~/HotFolders/Large Format",
     packingSlipPrinterName: "",
     shippingLabelPrinterName: "",
-    useMockBackend: true,
+    useMockBackend: false,
   },
   scanner: {
     status: "disabled",

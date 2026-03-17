@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Check, MapPin, Printer, Search, Tag, X } from "lucide-react";
 import { formatReceiverJobRoute, formatReceiverJobSource, inferReceiverJobSource } from "@/lib/receiver-contract";
-import { searchReceiverOrders, toAssetUrl, toAuthenticatedAssetUrl, toLocalAssetPreviewUrl } from "@/lib/tauri";
+import { openPathInOs, searchReceiverOrders, toAssetUrl, toAuthenticatedAssetUrl, toLocalAssetPreviewUrl } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { AssetRecord, JobItemRecord, JobRecord, JobStatus } from "@/types/app";
@@ -114,6 +114,59 @@ function getRemoteLoadLabel(job: JobRecord) {
   return "Load from PX";
 }
 
+function getSourceBadgeClass(job: JobRecord) {
+  switch (inferReceiverJobSource(job)) {
+    case "photozone":
+      return "border-blue-500/20 bg-blue-500/10 text-blue-100";
+    case "pzpro":
+      return "border-rose-500/20 bg-rose-500/10 text-rose-100";
+    case "wink":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-100";
+    default:
+      return "border-white/10 bg-white/[0.04] text-slate-300";
+  }
+}
+
+function formatAssetLabel(asset: AssetRecord) {
+  const filename = asset.filename.trim();
+  const normalized = filename.toLowerCase();
+  if (normalized === "condition.txt") {
+    return "Fuji Condition";
+  }
+  if (asset.kind === "pdf") {
+    return "Packing Slip";
+  }
+
+  return filename;
+}
+
+function shouldDisplayAsset(asset: AssetRecord) {
+  return asset.filename.trim().toLowerCase() !== "end.txt";
+}
+
+function formatAssetKindLabel(asset: AssetRecord) {
+  const filename = asset.filename.trim().toLowerCase();
+  if (filename === "condition.txt") {
+    return "control";
+  }
+
+  return asset.kind;
+}
+
+function getPxOrderUrl(job: JobRecord, backendUrl: string) {
+  const match = job.id.match(/-order-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const base = backendUrl.trim().replace(/\/+$/, "");
+  if (!base) {
+    return null;
+  }
+
+  return `${base}/orders/${match[1]}/`;
+}
+
 function formatDeliveryMethod(value?: string | null) {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "wink collection") {
@@ -121,6 +174,27 @@ function formatDeliveryMethod(value?: string | null) {
   }
 
   return value || "Not provided";
+}
+
+function renderCustomerName(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return "Unknown customer";
+  }
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length < 2) {
+    return trimmed;
+  }
+
+  const surname = parts.pop()!;
+  const firstNames = parts.join(" ");
+
+  return (
+    <>
+      {firstNames} <strong className="font-semibold text-slate-100">{surname}</strong>
+    </>
+  );
 }
 
 function formatOrderDateParts(value?: string | null) {
@@ -270,12 +344,12 @@ function AssetThumbnail({
   }, [candidate, authToken]);
 
   if (!resolvedSrc && isResolving) {
-    return <div className="h-16 w-16 animate-pulse rounded-2xl border border-slate-200 bg-slate-100" />;
+    return <div className="h-14 w-14 animate-pulse rounded-xl border border-white/10 bg-white/10" />;
   }
 
   if (!resolvedSrc) {
     return (
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-400">
+      <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-[10px] font-semibold text-slate-500">
         No Image
       </div>
     );
@@ -285,7 +359,7 @@ function AssetThumbnail({
     <img
       src={resolvedSrc}
       alt={item.name}
-      className="h-16 w-16 rounded-2xl border border-slate-200 object-cover"
+      className="h-14 w-14 rounded-xl border border-white/10 object-cover"
       onError={() => {
         setResolvedSrc(null);
         setActiveIndex((current) => current + 1);
@@ -296,15 +370,15 @@ function AssetThumbnail({
 
 function ItemList({ items }: { items: JobItemRecord[] }) {
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-1.5">
       {items.map((item, index) => (
-        <li key={`${item.name}-${index}`} className="flex items-center gap-3">
-          <span className="inline-flex h-[27px] min-w-[27px] shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-700">
+        <li key={`${item.name}-${index}`} className="flex items-center gap-2.5">
+          <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-1.5 text-[11px] font-semibold text-slate-200">
             {item.quantity}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-[13px] font-medium text-slate-900">{item.name}</p>
+              <p className="truncate text-[13px] font-medium text-slate-100">{item.name}</p>
               {item.finish || (item.border && item.border.toLowerCase() !== "borderless") ? (
                 <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
                   {item.finish ? <span className="crm-pill crm-pill--finish">{item.finish}</span> : null}
@@ -323,19 +397,16 @@ function OrderDetailModal({
   job,
   onClose,
   assetAuthToken,
+  backendUrl,
 }: {
   job: JobRecord;
   onClose: () => void;
   assetAuthToken?: string | null;
+  backendUrl: string;
 }) {
   const items = getDisplayItems(job);
-  const isCollectionOrder = job.deliveryMethod?.toLowerCase().includes("collection") ?? false;
-  const addressLines = [
-    job.shippingAddressLine1,
-    job.shippingAddressLine2,
-    [job.shippingCity, job.shippingPostcode].filter(Boolean).join(" ").trim() || null,
-    job.shippingCountry,
-  ].filter(Boolean) as string[];
+  const visibleAssets = job.assets.filter(shouldDisplayAsset);
+  const pxOrderUrl = getPxOrderUrl(job, backendUrl);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -350,39 +421,52 @@ function OrderDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-6" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[2rem] bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#08111c] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Order Detail</p>
-            <h3 className="mt-2 text-2xl font-semibold text-slate-900">Order {job.orderId}</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              {job.customerName || "Unknown customer"} · {formatDeliveryMethod(job.deliveryMethod)}
+            <h3 className="mt-2 text-2xl font-semibold text-slate-100">Order {job.orderId}</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              {renderCustomerName(job.customerName)} · {formatDeliveryMethod(job.deliveryMethod)}
             </p>
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{formatReceiverJobSource(job)}</p>
             {formatReceiverJobRoute(job) ? <p className="mt-2 text-xs text-slate-500">{formatReceiverJobRoute(job)}</p> : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 p-3 text-slate-600 transition hover:bg-slate-50"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {pxOrderUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void openPathInOs(pxOrderUrl);
+                }}
+                className="inline-flex items-center rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/[0.04]"
+              >
+                Open in PX
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center justify-center rounded-2xl border border-white/10 p-3 text-slate-400 transition hover:bg-white/[0.04]"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        <div className="grid max-h-[calc(90vh-88px)] gap-6 overflow-y-auto p-6 xl:grid-cols-[1.45fr,0.95fr]">
+        <div className="grid max-h-[calc(90vh-88px)] gap-6 overflow-y-auto p-6 xl:grid-cols-[1.55fr,0.95fr]">
           <section className="space-y-6">
-            <article className="rounded-3xl border border-slate-200 bg-slate-50/60 p-5">
+            <article className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Items</p>
               <div className="mt-4 space-y-4">
                 {items.map((item, index) => (
-                  <div key={`${item.name}-${index}`} className="flex items-start gap-4 rounded-2xl border border-slate-200 bg-white p-4">
+                  <div key={`${item.name}-${index}`} className="flex items-start gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <AssetThumbnail job={job} item={item} asset={getImageAsset(job, index)} authToken={assetAuthToken} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-base font-semibold text-slate-900">{item.name}</p>
-                          <p className="mt-1 text-sm text-slate-600">Quantity {item.quantity}</p>
+                          <p className="text-base font-semibold text-slate-100">{item.name}</p>
+                          <p className="mt-1 text-sm text-slate-400">Quantity {item.quantity}</p>
                         </div>
                         {item.finish || (item.border && item.border.toLowerCase() !== "borderless") ? (
                           <div className="flex flex-wrap gap-2">
@@ -396,73 +480,60 @@ function OrderDetailModal({
                 ))}
               </div>
             </article>
+          </section>
 
-            <article className="rounded-3xl border border-slate-200 bg-white p-5">
+          <aside className="space-y-6">
+            <article className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Files</p>
-              <div className="mt-4 space-y-3">
-                {job.assets.length === 0 ? (
+              <div className="mt-4 space-y-2.5">
+                {visibleAssets.length === 0 ? (
                   <p className="text-sm text-slate-500">No files attached.</p>
                 ) : (
-                  job.assets.map((asset) => (
-                    <div key={asset.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{asset.filename}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">{asset.kind}</p>
+                  visibleAssets.map((asset) => (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      disabled={!asset.localPath}
+                      onClick={() => {
+                        if (asset.localPath) {
+                          const normalized = asset.localPath.replace(/\\/g, "/");
+                          const folderPath = normalized.includes("/")
+                            ? normalized.slice(0, normalized.lastIndexOf("/")) || normalized
+                            : normalized;
+                          void openPathInOs(folderPath);
+                        }
+                      }}
+                      className="block w-full rounded-2xl border border-white/10 px-3 py-2.5 text-left transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-100">{formatAssetLabel(asset)}</p>
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-slate-500">{formatAssetKindLabel(asset)}</p>
+                        </div>
                       </div>
-                      <p className="max-w-sm truncate text-xs text-slate-500">{asset.localPath || asset.downloadUrl || "No local path yet"}</p>
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
             </article>
-          </section>
 
-          <aside className="space-y-6">
-            <article className="rounded-3xl border border-slate-200 bg-white p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Customer</p>
-              <div className="mt-4 space-y-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">{job.customerName || "Unknown customer"}</p>
-                <p>{job.customerEmail || "Email not available"}</p>
-                <p>{job.customerPhone || "Phone not available"}</p>
-              </div>
-            </article>
-
-            <article className="rounded-3xl border border-slate-200 bg-white p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Shipping</p>
-              <div className="mt-4 space-y-4 text-sm text-slate-700">
-                <div>
-                  <p className="font-medium text-slate-900">Requested Method</p>
-                  <p className="mt-1">{formatDeliveryMethod(job.deliveryMethod)}</p>
-                </div>
-                {!isCollectionOrder ? (
-                  <div>
-                    <div className="flex items-center gap-2 text-slate-900">
-                      <MapPin className="h-4 w-4" />
-                      <p className="font-medium">Address</p>
-                    </div>
-                    <div className="mt-2 space-y-1">
-                      {addressLines.length > 0 ? addressLines.map((line) => <p key={line}>{line}</p>) : <p>Address details not available in this feed.</p>}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </article>
-
-            <article className="rounded-3xl border border-slate-200 bg-white p-5">
+            <article className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Order Summary</p>
-              <div className="mt-4 space-y-3 text-sm text-slate-700">
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
                 <div className="flex items-center justify-between gap-4">
-                  <span>Updated</span>
+                  <span>Order Placed</span>
+                  <span>{formatDateTime(job.orderedAt || job.createdAt)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Order Downloaded</span>
                   <span>{formatDateTime(job.updatedAt)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span>Created</span>
-                  <span>{formatDateTime(job.createdAt)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span>Attempts</span>
-                  <span>{job.attempts}</span>
-                </div>
+                {job.status === "completed" ? (
+                  <div className="flex items-center justify-between gap-4">
+                    <span>Order Completed</span>
+                    <span>{formatDateTime(job.updatedAt)}</span>
+                  </div>
+                ) : null}
                 {job.lastError ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900">
                     <p className="text-xs uppercase tracking-[0.14em] text-rose-700">Last Error</p>
@@ -506,8 +577,8 @@ function JobRow({
   const canForceComplete = job.status === "processing" && !isPending;
 
   return (
-    <tr className="cursor-pointer border-t border-slate-200 align-top transition hover:bg-slate-50/80" onClick={onOpen}>
-      <td className="px-4 py-4 text-[13px] font-semibold text-slate-900">
+    <tr className="cursor-pointer border-t border-white/10 align-top transition hover:bg-white/[0.03]" onClick={onOpen}>
+      <td className="px-4 py-3 text-[13px] font-semibold text-slate-100">
         <div className="space-y-2">
           <p>{job.orderId}</p>
           {canPrintPackingSlip ? (
@@ -517,7 +588,7 @@ function JobRow({
                 event.stopPropagation();
                 printPackingSlip(job.id);
               }}
-              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-700 transition hover:border-slate-300 hover:bg-white"
+              className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08]"
             >
               Packing Slip
             </button>
@@ -525,27 +596,27 @@ function JobRow({
         </div>
       </td>
       {showSourceColumn ? (
-        <td className="px-4 py-4 text-[13px] text-slate-700">
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+        <td className="px-4 py-3 text-[13px] text-slate-300">
+          <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]", getSourceBadgeClass(job))}>
             {formatReceiverJobSource(job)}
           </span>
         </td>
       ) : null}
-      <td className="whitespace-nowrap px-4 py-4 text-[13px] text-slate-700">
+      <td className="whitespace-nowrap px-4 py-3 text-[13px] text-slate-300">
         <div className="space-y-1">
-          <p className="font-semibold text-slate-900">{orderedAt.time}</p>
+          <p className="font-semibold text-slate-100">{orderedAt.time}</p>
           {orderedAt.date ? <p className="text-xs text-slate-500">{orderedAt.date}</p> : null}
         </div>
       </td>
-      <td className="px-4 py-4 text-[13px] text-slate-700">{job.customerName || "Unknown customer"}</td>
-      <td className="min-w-[320px] px-4 py-4">
+      <td className="px-4 py-3 text-[13px] text-slate-300">{renderCustomerName(job.customerName)}</td>
+      <td className="min-w-[320px] px-4 py-3">
         <ItemList items={items} />
       </td>
-      <td className="px-4 py-4 text-[13px] text-slate-700">{formatDeliveryMethod(job.deliveryMethod)}</td>
-      <td className="px-4 py-4">
+      <td className="px-4 py-3 text-[13px] text-slate-300">{formatDeliveryMethod(job.deliveryMethod)}</td>
+      <td className="px-4 py-3">
         <StatusBadge value={job.status} kind="job" />
       </td>
-      <td className="px-4 py-4">
+      <td className="px-4 py-3">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -555,7 +626,7 @@ function JobRow({
               event.stopPropagation();
               reprintJob(job.id);
             }}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Printer className="h-4 w-4" />
           </button>
@@ -567,7 +638,7 @@ function JobRow({
               event.stopPropagation();
               printLabel(job.id);
             }}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Tag className="h-4 w-4" />
           </button>
@@ -579,7 +650,7 @@ function JobRow({
                 event.stopPropagation();
                 forceCompleteJob(job.id);
               }}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06]"
             >
               <Check className="h-4 w-4" />
             </button>
@@ -705,7 +776,7 @@ export function JobsView({
   useEffect(() => {
     let active = true;
 
-    if (!normalizedQuery || searchableJobs.length > 0 || snapshot.settings.useMockBackend) {
+    if (!normalizedQuery || searchableJobs.length > 0) {
       setRemoteMatches([]);
       setRemoteSearchError(null);
       setRemoteRecoveryError(null);
@@ -770,8 +841,14 @@ export function JobsView({
   return (
     <>
       <div className="space-y-4">
-        <section className="rounded-3xl border border-white/70 bg-panel p-4 shadow-panel">
+        <section className="rounded-[1.75rem] border border-white/10 bg-[#0c1826]/88 p-4 shadow-[0_22px_60px_rgba(2,6,23,0.34)]">
           <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{queueLabel}</p>
+                <p className="mt-2 text-sm text-slate-400">{queueDescription}</p>
+              </div>
+            </div>
             <label className="relative mx-auto block w-full max-w-xl">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -779,7 +856,7 @@ export function JobsView({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search order number, customer, item, finish, border, or delivery"
-                className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-accent"
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/40"
               />
             </label>
 
@@ -791,14 +868,14 @@ export function JobsView({
                   onClick={() => setStatusFilter(filter)}
                   className={cn(
                     "rounded-full px-4 py-2 text-sm font-bold transition",
-                    statusFilter === filter ? "bg-ink text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                    statusFilter === filter ? "bg-cyan-500/16 text-white" : "bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]",
                   )}
                 >
                   <span className="font-bold">{getFilterLabel(filter)}</span>
                   <span
                     className={cn(
                       "ml-2 inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold",
-                      statusFilter === filter ? "bg-white/15 text-white" : "bg-white text-slate-700",
+                      statusFilter === filter ? "bg-white/15 text-white" : "bg-white/[0.08] text-slate-200",
                     )}
                   >
                     {filterCounts[filter]}
@@ -809,18 +886,18 @@ export function JobsView({
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-panel">
+        <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0c1826]/88 shadow-[0_22px_60px_rgba(2,6,23,0.34)]">
           {jobs.length === 0 ? (
-            <div className="space-y-4 p-8 text-center text-sm text-slate-600">
+            <div className="space-y-4 p-8 text-center text-sm text-slate-400">
               <p>No orders match the current search or filter.</p>
               {normalizedQuery ? (
                 <div className="mx-auto max-w-3xl space-y-3 text-left">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                     <p className="text-xs uppercase tracking-[0.16em] text-slate-500">PX Search</p>
-                    {isSearchingRemote ? <p className="mt-2 text-sm text-slate-600">Searching PX for older orders...</p> : null}
+                    {isSearchingRemote ? <p className="mt-2 text-sm text-slate-300">Searching PX for older orders...</p> : null}
                     {!isSearchingRemote && remoteSearchError ? <p className="mt-2 text-sm text-rose-600">{remoteSearchError}</p> : null}
                     {!isSearchingRemote && !remoteSearchError && recoveringRemoteJobId ? (
-                      <p className="mt-2 text-sm text-slate-600">
+                      <p className="mt-2 text-sm text-slate-300">
                         {recoveredRemoteJob?.status === "completed" ? "Loading completed PX order..." : "Loading PX order..."}
                       </p>
                     ) : null}
@@ -830,23 +907,23 @@ export function JobsView({
                       </div>
                     ) : null}
                     {!isSearchingRemote && !remoteSearchError && remoteMatches.length === 0 ? (
-                      <p className="mt-2 text-sm text-slate-600">No PX matches found for this search.</p>
+                      <p className="mt-2 text-sm text-slate-300">No PX matches found for this search.</p>
                     ) : null}
                     {!isSearchingRemote && !remoteSearchError && remoteMatches.length === 1 && remoteMatches[0]?.status !== "completed" && !recoveringRemoteJobId ? (
-                      <p className="mt-2 text-sm text-slate-600">Found one PX match. Recovering it now...</p>
+                      <p className="mt-2 text-sm text-slate-300">Found one PX match. Recovering it now...</p>
                     ) : null}
                     {!isSearchingRemote && !remoteSearchError && remoteMatches.length === 1 && remoteMatches[0]?.status === "completed" ? (
-                      <p className="mt-2 text-sm text-slate-600">Found a completed PX order. Load it explicitly to inspect it or trigger a reprint.</p>
+                      <p className="mt-2 text-sm text-slate-300">Found a completed PX order. Load it explicitly to inspect it or trigger a reprint.</p>
                     ) : null}
                     {!isSearchingRemote && !remoteSearchError && remoteMatches.length > 1 ? (
-                      <p className="mt-2 text-sm text-slate-600">Multiple PX matches found. Check the status and customer details, then load the correct order.</p>
+                      <p className="mt-2 text-sm text-slate-300">Multiple PX matches found. Check the status and customer details, then load the correct order.</p>
                     ) : null}
                   </div>
                   {remoteMatches.map((job) => (
-                    <div key={`remote-${job.id}`} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 px-4 py-4">
+                    <div key={`remote-${job.id}`} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 px-4 py-4">
                       <div>
-                        <p className="font-semibold text-slate-900">{job.orderId}</p>
-                        <p className="mt-1 text-sm text-slate-600">{job.customerName || "Unknown customer"} · {job.productName}</p>
+                        <p className="font-semibold text-slate-100">{job.orderId}</p>
+                        <p className="mt-1 text-sm text-slate-400">{renderCustomerName(job.customerName)} · {job.productName}</p>
                         <div className="mt-2">
                           <StatusBadge value={job.status} kind="job" />
                         </div>
@@ -857,7 +934,7 @@ export function JobsView({
                         onClick={() => {
                           void handleRecoverRemoteJob(job);
                         }}
-                        className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                        className="inline-flex items-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/20 hover:bg-white/[0.08]"
                       >
                         {recoveringRemoteJobId === job.id ? "Loading..." : getRemoteLoadLabel(job)}
                       </button>
@@ -869,16 +946,16 @@ export function JobsView({
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full table-auto">
-                <thead className="bg-slate-50 text-left">
+                <thead className="bg-white/[0.03] text-left">
                   <tr className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    <th className="px-4 py-3 font-medium">Order</th>
-                    {showSourceColumn ? <th className="px-4 py-3 font-medium">Source</th> : null}
-                    <th className="px-4 py-3 font-medium">Ordered</th>
-                    <th className="px-4 py-3 font-medium">Customer</th>
-                    <th className="px-4 py-3 font-medium">Items</th>
-                    <th className="px-4 py-3 font-medium">Delivery</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Actions</th>
+                    <th className="px-4 py-2.5 font-medium">Order</th>
+                    {showSourceColumn ? <th className="px-4 py-2.5 font-medium">Source</th> : null}
+                    <th className="px-4 py-2.5 font-medium">Ordered</th>
+                    <th className="px-4 py-2.5 font-medium">Customer</th>
+                    <th className="px-4 py-2.5 font-medium">Items</th>
+                    <th className="px-4 py-2.5 font-medium">Delivery</th>
+                    <th className="px-4 py-2.5 font-medium">Status</th>
+                    <th className="px-4 py-2.5 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -902,7 +979,14 @@ export function JobsView({
         </section>
       </div>
 
-      {selectedJob ? <OrderDetailModal job={selectedJob} onClose={() => setSelectedJobId(null)} assetAuthToken={assetAuthToken} /> : null}
+      {selectedJob ? (
+        <OrderDetailModal
+          job={selectedJob}
+          onClose={() => setSelectedJobId(null)}
+          assetAuthToken={assetAuthToken}
+          backendUrl={snapshot.settings.backendUrl}
+        />
+      ) : null}
     </>
   );
 }

@@ -4,7 +4,7 @@ export default function PhotoZoneJobsPage() {
   return (
     <JobsView
       queueLabel="Photo Zone"
-      queueDescription="Photo Zone jobs assigned to this station for download, printing, completion, or recovery."
+      queueDescription=""
       sourceFilter="photozone"
     />
   );

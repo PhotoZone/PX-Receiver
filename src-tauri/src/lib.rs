@@ -153,6 +153,38 @@ fn fetch_receiver_routes_native(
 }
 
 #[tauri::command]
+fn login_receiver_store_native(
+    backend_url: String,
+    username: String,
+    password: String,
+) -> Result<serde_json::Value, String> {
+    let backend_url = backend_url.trim().trim_end_matches('/').to_string();
+    let username = username.trim().to_string();
+    if backend_url.is_empty() || username.is_empty() || password.trim().is_empty() {
+        return Err("Backend URL, username, and password are required.".into());
+    }
+
+    let response = px_client()?
+        .post(format!("{backend_url}/api/receiver/login"))
+        .json(&serde_json::json!({
+            "username": username,
+            "password": password,
+        }))
+        .send()
+        .map_err(|err| format!("Failed to sign in to PX receiver bootstrap at {backend_url}: {err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let detail = read_response_detail(response);
+        return Err(format!("PX store login failed ({status}): {detail}"));
+    }
+
+    response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("Failed to decode PX store login response: {err}"))
+}
+
+#[tauri::command]
 fn search_receiver_orders_native(
     backend_url: String,
     token: String,
@@ -470,6 +502,18 @@ fn check_for_app_update(app: AppHandle) -> Result<AppUpdateStatus, String> {
     let download_url = latest_installer_url().to_string();
     let release_url = "https://github.com/PhotoZone/PX-Receiver/releases".to_string();
 
+    if cfg!(debug_assertions) {
+        return Ok(AppUpdateStatus {
+            current_version,
+            latest_version: None,
+            is_update_available: false,
+            download_url,
+            release_url,
+            message: Some("Update checks are disabled in local dev builds.".to_string()),
+            checked_at: chrono::Utc::now().to_rfc3339(),
+        });
+    }
+
     let response = px_client()?
         .get("https://api.github.com/repos/PhotoZone/PX-Receiver/releases/latest")
         .header(reqwest::header::USER_AGENT, "PX-Receiver")
@@ -534,23 +578,45 @@ fn check_for_app_update(app: AppHandle) -> Result<AppUpdateStatus, String> {
 }
 
 #[tauri::command]
-fn open_folder_in_os(path: String) -> Result<(), String> {
+fn open_path_in_os(path: String) -> Result<(), String> {
+    let trimmed = path.trim().to_string();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let status = if cfg!(target_os = "windows") {
+            Command::new("explorer").arg(&trimmed).status()
+        } else if cfg!(target_os = "macos") {
+            Command::new("open").arg(&trimmed).status()
+        } else {
+            Command::new("xdg-open").arg(&trimmed).status()
+        }
+        .map_err(|err| format!("Failed to open path: {err}"))?;
+
+        if !status.success() {
+            return Err(format!("Failed to open path: {trimmed}"));
+        }
+
+        return Ok(());
+    }
+
     let resolved = expand_user_path(&path);
     if !resolved.exists() {
-        return Err(format!("Folder does not exist: {}", resolved.display()));
+        return Err(format!("Path does not exist: {}", resolved.display()));
     }
 
     let status = if cfg!(target_os = "windows") {
-        Command::new("explorer").arg(&resolved).status()
+        if resolved.is_file() {
+            Command::new("explorer").arg(&resolved).status()
+        } else {
+            Command::new("explorer").arg(&resolved).status()
+        }
     } else if cfg!(target_os = "macos") {
         Command::new("open").arg(&resolved).status()
     } else {
         Command::new("xdg-open").arg(&resolved).status()
     }
-    .map_err(|err| format!("Failed to open folder: {err}"))?;
+    .map_err(|err| format!("Failed to open path: {err}"))?;
 
     if !status.success() {
-        return Err(format!("Failed to open folder: {}", resolved.display()));
+        return Err(format!("Failed to open path: {}", resolved.display()));
     }
 
     Ok(())
@@ -983,11 +1049,12 @@ pub fn run() {
             relaunch_application,
             check_for_app_update,
             download_latest_app_build,
-            open_folder_in_os,
+            open_path_in_os,
             pick_folder,
             get_installed_printers,
             save_scanner_driver,
             fetch_receiver_routes_native,
+            login_receiver_store_native,
             search_receiver_orders_native,
             fetch_asset_preview,
             read_local_asset_preview

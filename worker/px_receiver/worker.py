@@ -21,6 +21,8 @@ from px_receiver.services.scanner import ScannerService
 from px_receiver.services.shipstation import create_shipping_label_pdf
 from px_receiver.state import LocalState
 
+MAX_SCAN_ACTIONS_PER_SESSION = 1
+
 
 class WorkerRuntime:
     def __init__(self, config_path: Path) -> None:
@@ -54,8 +56,11 @@ class WorkerRuntime:
         )
         self.backend = build_backend_client(self.settings)
         self.command_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.download_result_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self.stop_event = threading.Event()
         self.retry_queue: set[str] = set()
+        self.scan_action_counts: dict[str, int] = {}
+        self.active_downloads: dict[str, threading.Thread] = {}
         self.next_poll_at = 0.0
         self.scanner = ScannerService(
             on_scan=self.handle_scan,
@@ -99,7 +104,7 @@ class WorkerRuntime:
             asset_local_paths = {
                 asset.filename: asset.local_path
                 for asset in job.assets
-                if asset.local_path and Path(asset.local_path).exists()
+                if self.path_exists_safe(asset.local_path, scope="state", identifier=f"{job.id}/{asset.filename}")
             }
             all_assets_local = bool(job.assets) and len(asset_local_paths) == len(job.assets)
             primary_local_path = next(iter(asset_local_paths.values()), job.local_path)
@@ -292,6 +297,34 @@ class WorkerRuntime:
             return "postsnap"
         return "unknown"
 
+    def scan_action_key(self, reference: str) -> str:
+        return str(reference or "").strip().upper()
+
+    def can_process_scan_action(self, reference: str) -> bool:
+        key = self.scan_action_key(reference)
+        if not key:
+            return True
+        return self.scan_action_counts.get(key, 0) < MAX_SCAN_ACTIONS_PER_SESSION
+
+    def record_scan_action(self, reference: str) -> None:
+        key = self.scan_action_key(reference)
+        if not key:
+            return
+        self.scan_action_counts[key] = self.scan_action_counts.get(key, 0) + 1
+
+    def emit_blocked_scan(self, code: str, source: str, message: str, *, order_id: str | None = None) -> None:
+        self.emit_log(LogLevel.WARNING, message, "scanner")
+        self.emit_scan(
+            ScanRecord(
+                id=str(uuid4()),
+                code=code,
+                source=source,
+                status="blocked",
+                order_id=order_id,
+                message=message,
+            )
+        )
+
     def find_job_for_scan(self, code: str) -> JobRecord | None:
         normalized = str(code or "").strip()
         if not normalized:
@@ -317,6 +350,14 @@ class WorkerRuntime:
             return
 
         self.emit_log(LogLevel.INFO, f"Barcode scanned: {code}", "scanner")
+        if not self.can_process_scan_action(matched_job.order_id):
+            self.emit_blocked_scan(
+                code,
+                source,
+                f"Scan ignored for {matched_job.order_id}: maximum of {MAX_SCAN_ACTIONS_PER_SESSION} actions reached this session.",
+                order_id=matched_job.order_id,
+            )
+            return
         self.safe_backend_report_job_event(
             matched_job.id,
             "scan_confirmed",
@@ -327,24 +368,13 @@ class WorkerRuntime:
             },
         )
         if self.should_print_shipping_label_for_scan(matched_job):
-            label_path = self.print_shipping_label(matched_job.id)
-            self.emit_scan(
-                ScanRecord(
-                    id=str(uuid4()),
-                    code=code,
-                    source=source,
-                    status="matched" if label_path else "failed",
-                    job_id=matched_job.id,
-                    order_id=matched_job.order_id,
-                    can_reprint_label=bool(label_path),
-                    shipping_label_path=str(label_path) if label_path else None,
-                    message=(
-                        f"Matched {matched_job.order_id}; printed label."
-                        if label_path
-                        else f"Matched {matched_job.order_id}; label failed."
-                    ),
-                )
+            label_path = self.print_shipping_label_for_order_number(
+                matched_job.order_id,
+                source=source,
+                job_id=matched_job.id,
             )
+            if label_path:
+                self.record_scan_action(matched_job.order_id)
             return
 
         self.emit_scan(
@@ -359,14 +389,12 @@ class WorkerRuntime:
                 message=f"Matched {matched_job.order_id}; marking completed.",
             )
         )
-        self.complete_job_from_scan(matched_job.id)
+        if self.complete_job_from_scan(matched_job.id):
+            self.record_scan_action(matched_job.order_id)
 
     def handle_unmatched_scan(self, code: str, source: str) -> None:
         scan_kind = self.classify_scan_code(code)
-        if scan_kind == "photozone":
-            self.handle_photozone_scan(code, source)
-            return
-        if scan_kind == "postsnap":
+        if scan_kind in {"photozone", "postsnap"}:
             self.handle_postsnap_scan(code, source)
             return
 
@@ -380,56 +408,18 @@ class WorkerRuntime:
         self.emit_log(LogLevel.WARNING, f"Barcode scanned with no matching job: {code}", "scanner")
         self.emit_scan(scan)
 
-    def handle_photozone_scan(self, code: str, source: str) -> None:
-        try:
-            matches = self.backend.search_jobs(code)
-        except Exception as exc:  # noqa: BLE001
-            self.emit_log(LogLevel.ERROR, f"PX scan lookup failed for {code}: {exc}", "scanner")
-            self.emit_scan(
-                ScanRecord(
-                    id=str(uuid4()),
-                    code=code,
-                    source=source,
-                    status="failed",
-                    message=f"PX lookup failed: {exc}",
-                )
-            )
-            return
-
-        exact_matches = [job for job in matches if str(job.order_id).strip().casefold() == code.strip().casefold()]
-        candidate_matches = exact_matches or matches
-        if len(candidate_matches) != 1:
-            self.emit_log(LogLevel.WARNING, f"PX scan lookup did not resolve uniquely for {code}", "scanner")
-            self.emit_scan(
-                ScanRecord(
-                    id=str(uuid4()),
-                    code=code,
-                    source=source,
-                    status="unmatched",
-                    message="No unique PX receiver order was found for this barcode.",
-                )
-            )
-            return
-
-        job = candidate_matches[0]
-        self.emit_scan(
-            ScanRecord(
-                id=str(uuid4()),
-                code=code,
-                source=source,
-                status="matched",
-                job_id=job.id,
-                order_id=job.order_id,
-                can_reprint_label=False,
-                message=f"Matched {job.order_id}; marking completed.",
-            )
-        )
-        self.emit_log(LogLevel.INFO, f"Barcode scanned and resolved via PX search: {code}", "scanner")
-        self.complete_job_from_scan(job.id, resolved_job=job)
-
     def handle_postsnap_scan(self, code: str, source: str) -> None:
+        if not self.can_process_scan_action(code):
+            self.emit_blocked_scan(
+                code,
+                source,
+                f"Scan ignored for {code}: maximum of {MAX_SCAN_ACTIONS_PER_SESSION} actions reached this session.",
+                order_id=code,
+            )
+            return
         self.emit_log(LogLevel.INFO, f"Barcode scanned and resolved via ShipStation: {code}", "scanner")
-        self.print_shipping_label_for_order_number(code, source=source)
+        if self.print_shipping_label_for_order_number(code, source=source):
+            self.record_scan_action(code)
 
     def register(self) -> None:
         try:
@@ -615,13 +605,140 @@ class WorkerRuntime:
             )
             return False
 
+    def path_exists_safe(self, path: str | None, *, scope: str, identifier: str) -> bool:
+        if not path:
+            return False
+
+        try:
+            return Path(path).exists()
+        except OSError as exc:
+            self.emit_log(
+                LogLevel.WARNING,
+                f"Ignored invalid path for {identifier}: {path} ({exc})",
+                scope,
+            )
+            return False
+
     def has_all_local_assets(self, job: JobRecord) -> bool:
         return bool(job.assets) and all(
-            asset.local_path and Path(asset.local_path).exists()
+            self.path_exists_safe(asset.local_path, scope="state", identifier=f"{job.id}/{asset.filename}")
             for asset in job.assets
         )
 
+    def has_active_download(self) -> bool:
+        self.active_downloads = {
+            job_id: thread for job_id, thread in self.active_downloads.items() if thread.is_alive()
+        }
+        return bool(self.active_downloads)
+
+    def process_download_results(self) -> None:
+        while True:
+            try:
+                result = self.download_result_queue.get_nowait()
+            except queue.Empty:
+                return
+
+            job_id = str(result.get("job_id", ""))
+            self.active_downloads.pop(job_id, None)
+            job = next((item for item in self.snapshot.jobs if item.id == job_id), None)
+            if job is None:
+                self.local_state.clear_inflight(job_id)
+                self.local_state.save(self.paths["state"])
+                continue
+
+            if result.get("ok"):
+                asset_paths = result.get("asset_paths", {})
+                updated_assets = [
+                    AssetRecord.from_payload(asset_payload)
+                    for asset_payload in result.get("assets", [])
+                    if isinstance(asset_payload, dict)
+                ]
+                for log_message in result.get("logs", []):
+                    self.emit_log(LogLevel.INFO, str(log_message), "download")
+                updated_job = self.update_job_state(
+                    job,
+                    JobStatus.DOWNLOADED,
+                    local_path=next(iter(asset_paths.values()), None),
+                    local_paths=asset_paths if isinstance(asset_paths, dict) else {},
+                    assets=updated_assets or job.assets,
+                    last_error=None,
+                )
+                self.safe_backend_update_job_status(updated_job.id, JobStatus.DOWNLOADED)
+                self.local_state.clear_inflight(updated_job.id)
+                self.local_state.save(self.paths["state"])
+                self.emit_log(LogLevel.INFO, f"Job {updated_job.id} received and held locally", "receiver")
+                continue
+
+            error_message = str(result.get("error", "Unknown download failure"))
+            self.safe_backend_update_job_status(job.id, JobStatus.FAILED, error_message)
+            failed = self.update_job_state(job, JobStatus.FAILED, last_error=error_message)
+            self.local_state.clear_inflight(job.id)
+            self.local_state.save(self.paths["state"])
+            self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed during receive: {error_message}", "receiver")
+            self.snapshot.health = HealthState.ERROR
+
+    def start_background_receive(self, job: JobRecord) -> bool:
+        if self.has_active_download() or job.id in self.active_downloads:
+            return False
+
+        self.local_state.mark_inflight(job.id, "receive", job)
+        self.local_state.save(self.paths["state"])
+        try:
+            self.backend.claim_job(job.id)
+            queued_job = self.update_job_state(job, JobStatus.DOWNLOADING)
+            self.safe_backend_update_job_status(job.id, JobStatus.DOWNLOADING)
+            self.emit_log(LogLevel.INFO, f"Queued background receive for {job.id}", "receiver")
+        except Exception as exc:  # noqa: BLE001
+            self.safe_backend_update_job_status(job.id, JobStatus.FAILED, str(exc))
+            failed = self.update_job_state(job, JobStatus.FAILED, last_error=str(exc))
+            self.local_state.clear_inflight(job.id)
+            self.local_state.save(self.paths["state"])
+            self.emit_log(LogLevel.ERROR, f"Job {failed.id} failed before background receive: {exc}", "receiver")
+            self.snapshot.health = HealthState.ERROR
+            return False
+
+        worker_settings = self.settings
+        worker_backend = self.backend
+        result_queue = self.download_result_queue
+
+        def run_download() -> None:
+            try:
+                asset_paths: dict[str, str] = {}
+                updated_assets: list[dict[str, Any]] = []
+                log_messages: list[str] = []
+                for asset in queued_job.assets:
+                    content, content_type = worker_backend.download_asset(queued_job, asset)
+                    destination, thumbnail = write_job_asset(worker_settings, queued_job, asset, content)
+                    asset_paths[asset.filename] = str(destination)
+                    updated_assets.append(
+                        replace(
+                            asset,
+                            content_type=content_type or asset.content_type,
+                            local_path=str(destination),
+                            thumbnail_path=str(thumbnail) if thumbnail else None,
+                        ).to_payload()
+                    )
+                    log_messages.append(f"Saved {asset.filename} to {destination}")
+
+                result_queue.put(
+                    {
+                        "ok": True,
+                        "job_id": queued_job.id,
+                        "asset_paths": asset_paths,
+                        "assets": updated_assets,
+                        "logs": log_messages,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                result_queue.put({"ok": False, "job_id": queued_job.id, "error": str(exc)})
+
+        thread = threading.Thread(target=run_download, name=f"receive-{job.id}", daemon=True)
+        self.active_downloads[job.id] = thread
+        thread.start()
+        return True
+
     def poll_once(self) -> None:
+        self.process_download_results()
         self.snapshot.last_sync_at = now_iso()
         self.snapshot.current_activity = "Receiving assigned jobs"
         self.snapshot.health = HealthState.PAUSED if self.snapshot.polling_paused else HealthState.HEALTHY
@@ -642,10 +759,12 @@ class WorkerRuntime:
                 known_job_ids.add(job.id)
 
         for job in jobs:
+            if job.id in self.active_downloads:
+                continue
             if self.should_skip_job(job):
                 continue
             if job.status in {JobStatus.PENDING, JobStatus.FAILED} or job.id in self.retry_queue:
-                self.receive_job(job)
+                self.start_background_receive(job)
                 continue
             if job.status in {JobStatus.DOWNLOADED, JobStatus.PROCESSING}:
                 self.resume_dispatchable_job(job, report_backend_status=job.status == JobStatus.DOWNLOADED)
@@ -1102,7 +1221,22 @@ class WorkerRuntime:
             ),
         )
 
-    def print_shipping_label_for_order_number(self, order_number: str, *, source: str) -> None:
+    def print_shipping_label_for_order_number(
+        self,
+        order_number: str,
+        *,
+        source: str,
+        job_id: str | None = None,
+    ) -> Path | None:
+        if job_id:
+            self.safe_backend_report_job_event(
+                job_id,
+                "shipping_label_requested",
+                {
+                    "requested_at": now_iso(),
+                    "machine_id": self.settings.machine_id,
+                },
+            )
         try:
             label_path = create_shipping_label_pdf(
                 order_number=order_number,
@@ -1123,6 +1257,16 @@ class WorkerRuntime:
                 )
             )
             self.emit_log(LogLevel.INFO, f"Printed ShipStation label for {order_number}", "label")
+            if job_id:
+                self.safe_backend_report_job_event(
+                    job_id,
+                    "shipping_label_printed",
+                    {
+                        "printed_at": now_iso(),
+                        "machine_id": self.settings.machine_id,
+                    },
+                )
+            return cached_label_path
         except Exception as exc:  # noqa: BLE001
             self.emit_scan(
                 ScanRecord(
@@ -1134,6 +1278,17 @@ class WorkerRuntime:
                 )
             )
             self.emit_log(LogLevel.ERROR, f"ShipStation label print failed for {order_number}: {exc}", "label")
+            if job_id:
+                self.safe_backend_report_job_event(
+                    job_id,
+                    "shipping_label_failed",
+                    {
+                        "failed_at": now_iso(),
+                        "machine_id": self.settings.machine_id,
+                        "error": str(exc),
+                    },
+                )
+            return None
 
     def _print_label_pdf_for_scan(self, label_path: Path) -> None:
         print_pdf(
@@ -1230,11 +1385,11 @@ class WorkerRuntime:
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Force complete failed for {job_id}: {exc}", "control")
 
-    def complete_job_from_scan(self, job_id: str, *, resolved_job: JobRecord | None = None) -> None:
+    def complete_job_from_scan(self, job_id: str, *, resolved_job: JobRecord | None = None) -> bool:
         job = next((item for item in self.snapshot.jobs if item.id == job_id), None) or resolved_job
         if job is None:
             self.emit_log(LogLevel.WARNING, f"Scan completion requested for unknown job {job_id}", "scanner")
-            return
+            return False
 
         if resolved_job is not None and all(existing.id != resolved_job.id for existing in self.snapshot.jobs):
             self.emit_job(resolved_job)
@@ -1264,8 +1419,10 @@ class WorkerRuntime:
             self.retry_queue.discard(job.id)
             self.local_state.save(self.paths["state"])
             self.emit_log(LogLevel.INFO, f"Job {job_id} marked completed from barcode scan", "scanner")
+            return True
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Barcode completion failed for {job_id}: {exc}", "scanner")
+            return False
 
     def reprint_scan_label(self, scan_id: str) -> None:
         scan = next((item for item in self.snapshot.scanner.recent_scans if item.id == scan_id), None)
@@ -1291,6 +1448,7 @@ class WorkerRuntime:
 
         while not self.stop_event.is_set():
             self.process_pending_commands()
+            self.process_download_results()
 
             if time.time() >= self.next_poll_at:
                 try:

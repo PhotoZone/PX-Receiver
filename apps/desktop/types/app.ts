@@ -51,6 +51,17 @@ export type ReceiverRoutesResponse = {
   manualOverrideAllowed: boolean;
 };
 
+export type ReceiverStoreLoginResponse = ReceiverRoutesResponse & {
+  token: string;
+  tokenType: string;
+  user: {
+    username: string;
+    displayName: string;
+    location: string;
+    storeScope?: string | null;
+  };
+};
+
 export type AssetRecord = {
   id: string;
   kind: AssetKind;

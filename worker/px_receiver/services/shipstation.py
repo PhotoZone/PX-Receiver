@@ -65,9 +65,15 @@ def _download_binary(url: str, *, api_key: str | None = None) -> bytes:
         raise RuntimeError(f"ShipStation label download failed: {exc.reason}") from exc
 
 
-def find_shipment_id(order_number: str, *, api_key: str | None = None, api_base: str | None = None) -> str:
+def _find_shipment_id_with_params(
+    order_number: str,
+    *,
+    param_names: tuple[str, ...],
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str | None:
     base_url = _get_base_url(api_base)
-    for param_name in ("shipment_number", "shipmentNumber", "orderNumber", "order_number"):
+    for param_name in param_names:
         page = 1
         while True:
             query = parse.urlencode({param_name: order_number, "page": page, "pageSize": 200})
@@ -91,6 +97,28 @@ def find_shipment_id(order_number: str, *, api_key: str | None = None, api_base:
             if len(shipments) < 200:
                 break
             page += 1
+
+    return None
+
+
+def find_shipment_id(order_number: str, *, api_key: str | None = None, api_base: str | None = None) -> str:
+    fast_match = _find_shipment_id_with_params(
+        order_number,
+        param_names=("shipment_number", "shipmentNumber"),
+        api_key=api_key,
+        api_base=api_base,
+    )
+    if fast_match:
+        return fast_match
+
+    fallback_match = _find_shipment_id_with_params(
+        order_number,
+        param_names=("orderNumber", "order_number"),
+        api_key=api_key,
+        api_base=api_base,
+    )
+    if fallback_match:
+        return fallback_match
 
     raise RuntimeError(f"No ShipStation shipment found for {order_number}.")
 

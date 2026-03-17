@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { FolderOpen, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { routeMachineId, routeMatchesMachineId } from "@/lib/receiver-contract";
-import { fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, openFolderInOs, pickFolder } from "@/lib/tauri";
+import { fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, loginReceiverStore, openPathInOs, pickFolder } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
-import type { InstalledPrinter, ReceiverRoute, WorkerSettings } from "@/types/app";
+import type { InstalledPrinter, ReceiverRoute, ReceiverStoreLoginResponse, WorkerSettings } from "@/types/app";
 
 type FolderFieldProps = {
   label: string;
@@ -53,10 +53,10 @@ function FolderField({ label, value, placeholder, onChange, onOpen }: FolderFiel
 
   return (
     <label className="space-y-2">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="text-sm font-medium text-slate-200">{label}</span>
       <div className="flex gap-2">
         <input
-          className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
+          className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/40"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
@@ -65,7 +65,7 @@ function FolderField({ label, value, placeholder, onChange, onOpen }: FolderFiel
           type="button"
           onClick={() => void browse()}
           disabled={isPicking}
-          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <FolderOpen className="h-4 w-4" />
           Browse
@@ -74,7 +74,7 @@ function FolderField({ label, value, placeholder, onChange, onOpen }: FolderFiel
           type="button"
           onClick={() => void openFolder()}
           disabled={isOpening || !value.trim()}
-          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <FolderOpen className="h-4 w-4" />
           Open
@@ -106,10 +106,10 @@ function PrinterField({
 }: PrinterFieldProps) {
   return (
     <label className="space-y-2">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="text-sm font-medium text-slate-200">{label}</span>
       <div className="flex gap-2">
         <select
-          className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
+          className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40"
           value={value}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -124,7 +124,7 @@ function PrinterField({
           type="button"
           onClick={onRefresh}
           disabled={isLoadingPrinters}
-          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className="h-4 w-4" />
           Refresh
@@ -146,11 +146,11 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
+    <section className="rounded-[1.75rem] border border-white/10 bg-[#0c1826]/88 p-6 shadow-[0_22px_60px_rgba(2,6,23,0.34)]">
       <div>
         <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{eyebrow}</p>
-        <h4 className="mt-2 text-lg font-semibold text-slate-900">{title}</h4>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+        <h4 className="mt-2 text-lg font-semibold text-slate-100">{title}</h4>
+        {description ? <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{description}</p> : null}
       </div>
       <div className="mt-6 grid gap-5 md:grid-cols-2">{children}</div>
     </section>
@@ -173,6 +173,12 @@ export function SettingsView() {
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [operationsError, setOperationsError] = useState<string | null>(null);
   const [updateStatusMessage, setUpdateStatusMessage] = useState<string | null>(null);
+  const [storeLoginUsername, setStoreLoginUsername] = useState("");
+  const [storeLoginPassword, setStoreLoginPassword] = useState("");
+  const [storeLoginStatus, setStoreLoginStatus] = useState<string | null>(null);
+  const [storeLoginError, setStoreLoginError] = useState<string | null>(null);
+  const [isLoggingInToStore, setIsLoggingInToStore] = useState(false);
+  const [storeRouteScope, setStoreRouteScope] = useState<string[] | null>(null);
 
   useEffect(() => {
     setFormState(snapshot.settings);
@@ -221,7 +227,7 @@ export function SettingsView() {
         if (!active) {
           return;
         }
-        const nextRoutes = payload.stores?.length ? payload.stores : payload.routes ?? [];
+        const nextRoutes = filterRoutesByScope(payload.stores?.length ? payload.stores : payload.routes ?? []);
         setRoutes(nextRoutes);
         setManualStoreOverrideAllowed(payload.manualOverrideAllowed);
         setRouteError(null);
@@ -252,27 +258,43 @@ export function SettingsView() {
       active = false;
       window.clearTimeout(timeoutId);
     };
-  }, [formState.backendUrl, formState.apiToken, formState.machineAuthToken, formState.useMockBackend]);
+  }, [formState.backendUrl, formState.apiToken, formState.machineAuthToken, storeRouteScope]);
 
   const updateField = <K extends keyof WorkerSettings>(key: K, value: WorkerSettings[K]) => {
     setFormState((current) => ({ ...current, [key]: value }));
   };
 
+  const filterRoutesByScope = (nextRoutes: ReceiverRoute[]) => {
+    if (!storeRouteScope?.length) {
+      return nextRoutes;
+    }
+    return nextRoutes.filter((route) => route.storeKey && storeRouteScope.includes(route.storeKey));
+  };
+
+  const applyStoreScopedRoutes = (payload: ReceiverStoreLoginResponse, machineId: string) => {
+    const nextRoutes = filterRoutesByScope(payload.stores?.length ? payload.stores : payload.routes ?? []);
+    setRoutes(nextRoutes);
+    setManualStoreOverrideAllowed(payload.manualOverrideAllowed);
+    setManualStoreOverride(false);
+    setRouteError(null);
+    if (machineId && !nextRoutes.some((route) => routeMatchesMachineId(route, machineId))) {
+      setManualStoreOverride(true);
+    }
+  };
+
   const openConfiguredFolder = async (path: string) => {
-    await openFolderInOs(path);
+    await openPathInOs(path);
   };
 
   const lastWorkerError = snapshot.logs.find((entry) => entry.level === "error") ?? null;
   const lastAuthLog = snapshot.logs.find((entry) => entry.scope === "auth") ?? null;
-  const backendAuthState = formState.useMockBackend
-    ? "Mock backend enabled"
-    : snapshot.health === "error" && snapshot.currentActivity.toLowerCase().includes("startup")
-      ? "Startup check failed"
-      : (snapshot.settings.machineAuthToken || "").trim()
-        ? "Machine token present"
-        : formState.apiToken.trim()
-          ? "API token configured"
-          : "No backend credentials configured";
+  const backendAuthState = snapshot.health === "error" && snapshot.currentActivity.toLowerCase().includes("startup")
+    ? "Startup check failed"
+    : (snapshot.settings.machineAuthToken || "").trim()
+      ? "Machine token present"
+      : formState.apiToken.trim()
+        ? "API token configured"
+        : "No backend credentials configured";
   const hotFolderTargets = [
     { label: "Default", path: formState.hotFolderPath },
     { label: "Fuji", path: formState.photoPrintHotFolderPath || formState.hotFolderPath },
@@ -288,7 +310,7 @@ export function SettingsView() {
         void updateSettings(formState);
       }}
     >
-      <div className="flex flex-wrap justify-end gap-3">
+      <div className="flex flex-wrap justify-end gap-3 rounded-[1.5rem] border border-white/10 bg-[#0c1826]/88 p-4 shadow-[0_22px_60px_rgba(2,6,23,0.34)]">
         <button
           type="button"
           disabled={isRestartingWorker}
@@ -301,7 +323,7 @@ export function SettingsView() {
               setIsRestartingWorker(false);
             });
           }}
-          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RotateCcw className="h-4 w-4" />
           Restart worker
@@ -314,7 +336,7 @@ export function SettingsView() {
               setOperationsError(error instanceof Error ? error.message : "Failed to relaunch app.");
             });
           }}
-          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent"
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]"
         >
           <RotateCcw className="h-4 w-4" />
           Relaunch app
@@ -342,7 +364,7 @@ export function SettingsView() {
             });
           }}
           disabled={isCheckingForUpdates}
-          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${isCheckingForUpdates ? "animate-spin" : ""}`} />
           {appUpdate?.isUpdateAvailable ? "Download update" : "Check for updates"}
@@ -350,52 +372,52 @@ export function SettingsView() {
         <button
           type="submit"
           disabled={isPending}
-          className="inline-flex items-center gap-2 rounded-2xl bg-accent px-4 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
           Save settings
         </button>
       </div>
-      {updateStatusMessage ? <p className="text-sm text-slate-600">{updateStatusMessage}</p> : null}
+      {updateStatusMessage ? <p className="text-sm text-slate-400">{updateStatusMessage}</p> : null}
       {operationsError ? <p className="text-sm text-rose-600">{operationsError}</p> : null}
 
       <SettingsSection
         eyebrow="Operations"
         title="Runtime Controls"
-        description="Quick actions and current runtime details for support and recovery."
+        description=""
       >
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:col-span-2">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Backend auth</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{backendAuthState}</p>
+              <p className="mt-2 text-sm font-semibold text-slate-100">{backendAuthState}</p>
               <p className="mt-1 text-xs text-slate-500">{lastAuthLog?.message || snapshot.currentActivity}</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Last worker error</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{lastWorkerError ? lastWorkerError.message : "None"}</p>
+              <p className="mt-2 text-sm font-semibold text-slate-100">{lastWorkerError ? lastWorkerError.message : "None"}</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Last PX search</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">
+              <p className="mt-2 text-sm font-semibold text-slate-100">
                 {lastSuccessfulPxSearch ? `${lastSuccessfulPxSearch.query} (${lastSuccessfulPxSearch.resultCount})` : "No successful PX search yet"}
               </p>
               <p className="mt-1 text-xs text-slate-500">{lastSuccessfulPxSearch?.searchedAt || ""}</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Current activity</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{snapshot.currentActivity}</p>
+              <p className="mt-2 text-sm font-semibold text-slate-100">{snapshot.currentActivity}</p>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 md:col-span-2">
-          <p className="text-sm font-medium text-slate-900">Current hot-folder targets</p>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:col-span-2">
+          <p className="text-sm font-medium text-slate-100">Current hot-folder targets</p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {hotFolderTargets.map((target) => (
-              <div key={target.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div key={target.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{target.label}</p>
-                <p className="mt-2 break-all text-sm font-medium text-slate-900">{target.path || "Not configured"}</p>
+                <p className="mt-2 break-all text-sm font-medium text-slate-100">{target.path || "Not configured"}</p>
               </div>
             ))}
           </div>
@@ -405,26 +427,95 @@ export function SettingsView() {
       <SettingsSection
         eyebrow="Connection"
         title="Backend And Store"
-        description="How this station identifies itself and connects to the assigned store order feed."
+        description=""
       >
+        <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:col-span-2">
+          <div>
+            <p className="text-sm font-medium text-slate-100">Store login</p>
+            <p className="mt-1 text-sm text-slate-400">
+              Sign in with the PX store account to load the correct store route and bootstrap token instead of pasting raw machine IDs.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/40"
+              value={storeLoginUsername}
+              onChange={(event) => setStoreLoginUsername(event.target.value)}
+              placeholder="PX username"
+              autoComplete="username"
+            />
+            <input
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/40"
+              type="password"
+              value={storeLoginPassword}
+              onChange={(event) => setStoreLoginPassword(event.target.value)}
+              placeholder="PX password"
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              disabled={isLoggingInToStore}
+              onClick={() => {
+                setIsLoggingInToStore(true);
+                setStoreLoginError(null);
+                setStoreLoginStatus(null);
+                void loginReceiverStore(formState.backendUrl, storeLoginUsername, storeLoginPassword)
+                  .then(async (payload) => {
+                    const scopedRoutes = payload.stores?.length ? payload.stores : payload.routes ?? [];
+                    const nextMachineId =
+                      scopedRoutes.find((route) => routeMatchesMachineId(route, formState.machineId))
+                        ? formState.machineId
+                        : routeMachineId(scopedRoutes[0]) || formState.machineId;
+                    setStoreRouteScope(scopedRoutes.map((route) => route.storeKey).filter((value): value is string => Boolean(value)));
+                    const nextSettings: WorkerSettings = {
+                      ...formState,
+                      apiToken: payload.token,
+                      machineAuthToken: "",
+                      machineId: nextMachineId,
+                      useMockBackend: false,
+                    };
+                    setFormState(nextSettings);
+                    applyStoreScopedRoutes(payload, nextMachineId);
+                    setStoreLoginPassword("");
+                    setStoreLoginStatus(
+                      `Signed in as ${payload.user.displayName}${payload.user.location ? ` · ${payload.user.location}` : ""}.`
+                    );
+                    await updateSettings(nextSettings);
+                  })
+                  .catch((error: unknown) => {
+                    setStoreLoginError(error instanceof Error ? error.message : "PX store login failed.");
+                  })
+                  .finally(() => {
+                    setIsLoggingInToStore(false);
+                  });
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoggingInToStore ? "Signing in..." : "Use store login"}
+            </button>
+          </div>
+          {storeLoginStatus ? <p className="text-xs text-emerald-700">{storeLoginStatus}</p> : null}
+          {storeLoginError ? <p className="text-xs text-rose-600">{storeLoginError}</p> : null}
+        </div>
+
         <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">Backend API URL</span>
-          <input className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none ring-0 transition focus:border-accent" value={formState.backendUrl} onChange={(event) => updateField("backendUrl", event.target.value)} />
+          <span className="text-sm font-medium text-slate-200">Backend API URL</span>
+          <input className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none ring-0 transition focus:border-cyan-400/40" value={formState.backendUrl} onChange={(event) => updateField("backendUrl", event.target.value)} />
         </label>
 
         <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">Machine name</span>
-          <input className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent" value={formState.machineName} onChange={(event) => updateField("machineName", event.target.value)} />
+          <span className="text-sm font-medium text-slate-200">Machine name</span>
+          <input className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" value={formState.machineName} onChange={(event) => updateField("machineName", event.target.value)} />
         </label>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-slate-700">Store route</span>
+            <span className="text-sm font-medium text-slate-200">Store route</span>
             {manualStoreOverrideAllowed ? (
               <button
                 type="button"
                 onClick={() => setManualStoreOverride((current) => !current)}
-                className="text-xs font-medium text-slate-500 transition hover:text-accent"
+                className="text-xs font-medium text-slate-500 transition hover:text-cyan-300"
               >
                 {manualStoreOverride ? "Use dropdown" : "Enter manually"}
               </button>
@@ -433,14 +524,14 @@ export function SettingsView() {
 
           {manualStoreOverride || routes.length === 0 ? (
             <input
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40"
               value={formState.machineId}
               onChange={(event) => updateField("machineId", event.target.value)}
               placeholder="Machine ID"
             />
           ) : (
             <select
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40"
               value={routes.find((route) => routeMatchesMachineId(route, formState.machineId))?.storeId ?? ""}
               onChange={(event) => {
                 const selectedRoute = routes.find((route) => route.storeId === event.target.value);
@@ -466,14 +557,14 @@ export function SettingsView() {
         </div>
 
         <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">API token</span>
-          <input className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent" type="password" value={formState.apiToken} onChange={(event) => updateField("apiToken", event.target.value)} />
+          <span className="text-sm font-medium text-slate-200">API token</span>
+          <input className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="password" value={formState.apiToken} onChange={(event) => updateField("apiToken", event.target.value)} />
         </label>
 
         <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">ShipStation API key</span>
+          <span className="text-sm font-medium text-slate-200">ShipStation API key</span>
           <input
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
+            className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40"
             type="password"
             value={formState.shipstationApiKey}
             onChange={(event) => updateField("shipstationApiKey", event.target.value)}
@@ -481,23 +572,16 @@ export function SettingsView() {
         </label>
 
         <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">Polling interval (seconds)</span>
-          <input className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent" type="number" min={5} max={300} value={formState.pollingIntervalSeconds} onChange={(event) => updateField("pollingIntervalSeconds", Number(event.target.value))} />
+          <span className="text-sm font-medium text-slate-200">Polling interval (seconds)</span>
+          <input className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" min={5} max={300} value={formState.pollingIntervalSeconds} onChange={(event) => updateField("pollingIntervalSeconds", Number(event.target.value))} />
         </label>
 
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-slate-700">Use mock backend</span>
-          <select className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent" value={String(formState.useMockBackend)} onChange={(event) => updateField("useMockBackend", event.target.value === "true")}>
-            <option value="true">Enabled</option>
-            <option value="false">Disabled</option>
-          </select>
-        </label>
       </SettingsSection>
 
       <SettingsSection
         eyebrow="Printing"
         title="Output Printers"
-        description="Choose the printer for packing slips separately from the printer used for shipping labels."
+        description=""
       >
         <PrinterField
           label="Packing slip printer"
@@ -528,7 +612,7 @@ export function SettingsView() {
       <SettingsSection
         eyebrow="Storage"
         title="Downloads And Hot Folders"
-        description="Choose where orders download locally and where each printer route is released for production."
+        description=""
       >
         <FolderField label="Download directory" value={formState.downloadDirectory} onChange={(value) => updateField("downloadDirectory", value)} onOpen={openConfiguredFolder} />
 
