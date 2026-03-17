@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FolderOpen, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { routeMachineId, routeMatchesMachineId } from "@/lib/receiver-contract";
 import { fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, openFolderInOs, pickFolder } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import type { InstalledPrinter, ReceiverRoute, WorkerSettings } from "@/types/app";
@@ -217,14 +218,14 @@ export function SettingsView() {
         setManualStoreOverrideAllowed(payload.manualOverrideAllowed);
         setRouteError(null);
 
-        const selectedRoute = nextRoutes.find((route) => route.storeId === formState.machineId);
+        const selectedRoute = nextRoutes.find((route) => routeMatchesMachineId(route, formState.machineId));
         if (!selectedRoute && nextRoutes.length > 0 && (!formState.machineId || formState.machineId === "machine-demo-001")) {
           setFormState((current) => ({
             ...current,
-            machineId: nextRoutes[0].storeId || nextRoutes[0].defaultMachineId || current.machineId,
+            machineId: routeMachineId(nextRoutes[0]) || current.machineId,
           }));
         }
-        if (formState.machineId && !nextRoutes.some((route) => route.storeId === formState.machineId)) {
+        if (formState.machineId && !nextRoutes.some((route) => routeMatchesMachineId(route, formState.machineId))) {
           setManualStoreOverride(true);
         }
       } catch {
@@ -411,7 +412,7 @@ export function SettingsView() {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-slate-700">Store</span>
+            <span className="text-sm font-medium text-slate-700">Store route</span>
             {manualStoreOverrideAllowed ? (
               <button
                 type="button"
@@ -428,27 +429,33 @@ export function SettingsView() {
               className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
               value={formState.machineId}
               onChange={(event) => updateField("machineId", event.target.value)}
-              placeholder="Store ID"
+              placeholder="Machine ID"
             />
           ) : (
             <select
               className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-accent"
-              value={routes.some((route) => route.storeId === formState.machineId) ? formState.machineId : ""}
-              onChange={(event) => updateField("machineId", event.target.value)}
+              value={routes.find((route) => routeMatchesMachineId(route, formState.machineId))?.storeId ?? ""}
+              onChange={(event) => {
+                const selectedRoute = routes.find((route) => route.storeId === event.target.value);
+                updateField("machineId", selectedRoute ? routeMachineId(selectedRoute) : event.target.value);
+              }}
             >
               <option value="" disabled>
-                Select a store
+                Select a store route
               </option>
               {routes.map((route) => (
                 <option key={`${route.source}-${route.storeId}`} value={route.storeId}>
-                  {route.label}
+                  {route.label}{route.defaultMachineId ? ` · ${route.defaultMachineId}` : ""}
                 </option>
               ))}
             </select>
           )}
 
-          {isLoadingRoutes ? <p className="text-xs text-slate-500">Loading available stores...</p> : null}
+          {isLoadingRoutes ? <p className="text-xs text-slate-500">Loading available store routes...</p> : null}
           {routeError ? <p className="text-xs text-rose-600">{routeError}</p> : null}
+          {!routeError && !manualStoreOverride ? (
+            <p className="text-xs text-slate-500">The selected route applies its PX default machine ID automatically.</p>
+          ) : null}
         </div>
 
         <label className="space-y-2">

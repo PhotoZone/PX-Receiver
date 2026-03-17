@@ -37,6 +37,7 @@ export type InstalledPrinter = {
 
 export type ReceiverRoute = {
   source: string;
+  storeKey?: string | null;
   storeId: string;
   label: string;
   location?: string | null;
@@ -94,6 +95,9 @@ export type JobRecord = {
   id: string;
   orderId: string;
   source?: string | null;
+  storeId?: string | null;
+  targetMachineId?: string | null;
+  targetLocation?: string | null;
   productName: string;
   printer?: string | null;
   customerName?: string | null;

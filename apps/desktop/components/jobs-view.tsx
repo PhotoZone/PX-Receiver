@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Check, MapPin, Printer, Search, Tag, X } from "lucide-react";
+import { formatReceiverJobRoute, formatReceiverJobSource, inferReceiverJobSource } from "@/lib/receiver-contract";
 import { searchReceiverOrders, toAssetUrl, toAuthenticatedAssetUrl, toLocalAssetPreviewUrl } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -91,35 +92,6 @@ function formatDeliveryMethod(value?: string | null) {
   }
 
   return value || "Not provided";
-}
-
-function inferJobSource(job: Pick<JobRecord, "source" | "orderId" | "deliveryMethod">) {
-  const explicit = (job.source || "").trim().toLowerCase();
-  if (explicit) {
-    return explicit;
-  }
-
-  const orderId = (job.orderId || "").trim().toLowerCase();
-  const deliveryMethod = (job.deliveryMethod || "").trim().toLowerCase();
-
-  if (orderId.startsWith("w") || deliveryMethod.includes("wink")) {
-    return "wink";
-  }
-
-  return "";
-}
-
-function formatJobSource(job: Pick<JobRecord, "source" | "orderId" | "deliveryMethod">) {
-  switch (inferJobSource(job)) {
-    case "wink":
-      return "Wink";
-    case "photo_zone":
-      return "Photo Zone";
-    case "pzpro":
-      return "PZPro";
-    default:
-      return "Unknown";
-  }
 }
 
 function formatOrderDateParts(value?: string | null) {
@@ -357,7 +329,8 @@ function OrderDetailModal({
             <p className="mt-2 text-sm text-slate-600">
               {job.customerName || "Unknown customer"} · {formatDeliveryMethod(job.deliveryMethod)}
             </p>
-            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{formatJobSource(job)}</p>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{formatReceiverJobSource(job)}</p>
+            {formatReceiverJobRoute(job) ? <p className="mt-2 text-xs text-slate-500">{formatReceiverJobRoute(job)}</p> : null}
           </div>
           <button
             type="button"
@@ -524,7 +497,7 @@ function JobRow({
       {showSourceColumn ? (
         <td className="px-4 py-4 text-[13px] text-slate-700">
           <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
-            {formatJobSource(job)}
+            {formatReceiverJobSource(job)}
           </span>
         </td>
       ) : null}
@@ -611,7 +584,7 @@ export function JobsView({
 
   const searchableJobs = useMemo(() => {
     return recentJobs.filter((job) => {
-      if (sourceFilter && inferJobSource(job) !== sourceFilter.toLowerCase()) {
+      if (sourceFilter && inferReceiverJobSource(job) !== sourceFilter.toLowerCase()) {
         return false;
       }
 

@@ -12,6 +12,8 @@
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "set:version": "node scripts/set-version.mjs",
     "typecheck:web": "npm run clean:next-conflicts && npm --workspace apps/desktop exec -- tsc --noEmit",
+    "test:web-contract": "node --test --experimental-strip-types apps/desktop/lib/receiver-contract.test.mts",
+    "test:worker-contract": "PYTHONPATH=worker python3 -m unittest discover -s worker/tests -p 'test_*.py'",
     "lint:web": "npm --workspace apps/desktop run lint",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
