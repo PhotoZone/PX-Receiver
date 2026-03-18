@@ -14,6 +14,8 @@ type Props = {
   children: React.ReactNode;
 };
 
+const PX_BACKEND_URL = "https://px.photozone.co.uk";
+
 function LoginGate({
   settings,
   updateSettings,
@@ -38,6 +40,7 @@ function LoginGate({
     const resolvedRoute = selectedRoute ?? availableRoutes.find((route) => route.storeId === selectedStoreId) ?? availableRoutes[0];
     const nextSettings: WorkerSettings = {
       ...settings,
+      backendUrl: PX_BACKEND_URL,
       apiToken: payload.token,
       machineAuthToken: "",
       machineName: machineName.trim() || settings.machineName,
@@ -53,7 +56,7 @@ function LoginGate({
     setError(null);
     setStatusMessage(null);
     try {
-      const payload = await loginReceiverStore(settings.backendUrl, username, password);
+      const payload = await loginReceiverStore(PX_BACKEND_URL, username, password);
       const nextRoutes = payload.stores?.length ? payload.stores : payload.routes ?? [];
       setRoutes(nextRoutes);
       if (nextRoutes.length > 1) {
@@ -108,14 +111,6 @@ function LoginGate({
         </div>
 
         <div className="mt-8 space-y-4">
-          <label className="block space-y-2">
-            <span className="text-sm font-medium text-slate-200">Backend API URL</span>
-            <input
-              value={settings.backendUrl}
-              readOnly
-              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-300 outline-none"
-            />
-          </label>
           <label className="block space-y-2">
             <span className="text-sm font-medium text-slate-200">Machine Name</span>
             <input

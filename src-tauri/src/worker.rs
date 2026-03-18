@@ -163,7 +163,7 @@ pub struct WorkerSettings {
 impl Default for WorkerSettings {
     fn default() -> Self {
         Self {
-            backend_url: "https://backend.example.com".into(),
+            backend_url: "https://px.photozone.co.uk".into(),
             machine_id: "machine-demo-001".into(),
             machine_name: "PX Receiver 01".into(),
             api_token: String::new(),

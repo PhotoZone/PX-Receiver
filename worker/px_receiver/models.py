@@ -81,7 +81,7 @@ class AssetKind(StrEnum):
 
 @dataclass(slots=True)
 class WorkerSettings:
-    backend_url: str = "https://backend.example.com"
+    backend_url: str = "https://px.photozone.co.uk"
     machine_id: str = "machine-demo-001"
     machine_name: str = "PX Receiver 01"
     api_token: str = ""
