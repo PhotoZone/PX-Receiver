@@ -149,7 +149,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          export PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           if [ "${{ matrix.label }}" = "macOS Apple Silicon" ]; then
             cp "src-tauri/target/release/bundle/dmg/"*.dmg "release-assets/PX-Receiver-macOS-AppleSilicon.dmg"
           elif [ "${{ matrix.label }}" = "macOS Intel" ]; then
