@@ -402,6 +402,19 @@ fn retry_worker_job(
 }
 
 #[tauri::command]
+fn remove_local_worker_job(
+    state: State<'_, RuntimeState>,
+    job_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.remove_local_job(job_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
 fn recover_remote_job(
     state: State<'_, RuntimeState>,
     job: serde_json::Value,
@@ -1154,6 +1167,7 @@ pub fn run() {
             remove_large_format_batch,
             delete_large_format_job,
             retry_worker_job,
+            remove_local_worker_job,
             recover_remote_job,
             reprint_worker_job,
             print_worker_packing_slip,

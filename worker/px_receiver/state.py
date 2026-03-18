@@ -89,6 +89,13 @@ class LocalState:
         self.jobs = [payload, *[item for item in self.jobs if item.get("id") != job.id]]
         self.prune_history()
 
+    def forget_job(self, job_id: str) -> None:
+        self.jobs = [item for item in self.jobs if item.get("id") != job_id]
+        self.processed_jobs.pop(job_id, None)
+        self.retries.pop(job_id, None)
+        self.inflight_actions.pop(job_id, None)
+        self.prune_history()
+
     def remember_log(self, log: LogRecord) -> None:
         payload = log.to_payload()
         self.logs = [payload, *[item for item in self.logs if item.get("id") != log.id]]

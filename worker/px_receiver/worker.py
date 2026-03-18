@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import queue
+import shutil
 import sys
 import threading
 import time
@@ -16,7 +17,7 @@ from uuid import uuid4
 
 from px_receiver.models import AssetKind, AssetRecord, HealthState, JobRecord, JobStatus, LargeFormatActivity, LargeFormatBatch, LargeFormatBatchStatus, LargeFormatJob, LargeFormatJobStatus, LargeFormatState, LogLevel, LogRecord, PrintInstructions, ScanRecord, ScannerState, WorkerSettings, WorkerSnapshot, now_iso
 from px_receiver.services.backend import BackendClient, build_backend_client
-from px_receiver.services.filesystem import cache_external_shipping_label_pdf, cache_shipping_label_pdf, prune_working_directories, release_asset_to_hot_folder, write_job_asset
+from px_receiver.services.filesystem import cache_external_shipping_label_pdf, cache_shipping_label_pdf, job_working_dir, prune_working_directories, release_asset_to_hot_folder, write_job_asset
 from px_receiver.services.large_format import (
     classify_a_series_large_format_job,
     build_large_format_job,
@@ -1004,6 +1005,12 @@ class WorkerRuntime:
                 self.force_complete_job(job_id)
             return
 
+        if name == "remove_local_job":
+            job_id = str(command.get("job_id", ""))
+            if job_id:
+                self.remove_local_job(job_id)
+            return
+
         if name == "scan_large_format_now":
             self.scan_large_format_folder()
             return
@@ -1956,6 +1963,37 @@ class WorkerRuntime:
             self.emit_log(LogLevel.INFO, f"Job {job_id} marked completed from desktop UI", "control")
         except Exception as exc:  # noqa: BLE001
             self.emit_log(LogLevel.ERROR, f"Force complete failed for {job_id}: {exc}", "control")
+
+    def remove_local_job(self, job_id: str) -> None:
+        job = next((item for item in self.snapshot.jobs if item.id == job_id), None)
+        if job is None:
+            self.emit_log(LogLevel.WARNING, f"Local remove requested for unknown job {job_id}", "control")
+            return
+
+        if self.snapshot.active_job_id == job_id or job_id in self.active_downloads:
+            self.emit_log(LogLevel.WARNING, f"Cannot remove {job.order_id} while it is active.", "control")
+            return
+
+        self.emit_log(LogLevel.INFO, f"Removing local job {job.order_id}", "control")
+
+        try:
+            working_dir = job_working_dir(self.settings, job)
+            if working_dir.exists():
+                shutil.rmtree(working_dir)
+
+            self.snapshot.jobs = [item for item in self.snapshot.jobs if item.id != job_id]
+            self.snapshot.queue_count = sum(
+                1 for item in self.snapshot.jobs if item.status in {JobStatus.PENDING, JobStatus.DOWNLOADING, JobStatus.DOWNLOADED, JobStatus.PROCESSING}
+            )
+            self.retry_queue.discard(job_id)
+            self.clear_failure_alerts(job_id)
+            self.local_state.forget_job(job_id)
+            self.local_state.save(self.paths["state"])
+            prune_working_directories(self.settings, self.snapshot.jobs)
+            self.emit_health()
+            self.emit_log(LogLevel.INFO, f"Removed local job {job.order_id} from receiver queue", "control")
+        except Exception as exc:  # noqa: BLE001
+            self.emit_log(LogLevel.ERROR, f"Local remove failed for {job_id}: {exc}", "control")
 
     def complete_job_from_scan(self, job_id: str, *, resolved_job: JobRecord | None = None) -> bool:
         job = next((item for item in self.snapshot.jobs if item.id == job_id), None) or resolved_job

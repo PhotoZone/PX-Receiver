@@ -486,6 +486,7 @@ enum WorkerCommand {
     RemoveLargeFormatBatch { batch_id: String },
     DeleteLargeFormatJob { job_id: String },
     RetryJob { job_id: String },
+    RemoveLocalJob { job_id: String },
     RecoverJob { job: serde_json::Value },
     ReprintJob { job_id: String },
     PrintPackingSlip { job_id: String },
@@ -587,6 +588,10 @@ impl WorkerHandle {
 
     pub fn retry_job(&self, job_id: String) -> Result<(), WorkerError> {
         self.send(WorkerCommand::RetryJob { job_id })
+    }
+
+    pub fn remove_local_job(&self, job_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::RemoveLocalJob { job_id })
     }
 
     pub fn scan_large_format_now(&self) -> Result<(), WorkerError> {

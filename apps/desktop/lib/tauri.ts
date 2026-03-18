@@ -161,6 +161,15 @@ export async function retryJob(jobId: string) {
   return invoke<WorkerSnapshot>("retry_worker_job", { jobId });
 }
 
+export async function removeLocalWorkerJob(jobId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("remove_local_worker_job", { jobId });
+}
+
 export async function recoverRemoteJob(job: JobRecord) {
   if (!isTauri()) {
     return defaultSnapshot;

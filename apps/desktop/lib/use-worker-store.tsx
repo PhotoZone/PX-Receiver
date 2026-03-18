@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { defaultSnapshot } from "@/lib/defaults";
-import { approveLargeFormatBatch, checkForAppUpdate, createManualLargeFormatBatch, deleteLargeFormatJob, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, processLargeFormatNow, recoverRemoteJob, regenerateLargeFormatBatch, removeLargeFormatBatch, reprintJob, reprintWorkerScanLabel, relaunchApp, restartWorker, resumePolling, retryJob, scanLargeFormatNow, sendLargeFormatBatch, updateSettings } from "@/lib/tauri";
+import { approveLargeFormatBatch, checkForAppUpdate, createManualLargeFormatBatch, deleteLargeFormatJob, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, processLargeFormatNow, recoverRemoteJob, regenerateLargeFormatBatch, relaunchApp, removeLargeFormatBatch, removeLocalWorkerJob, reprintJob, reprintWorkerScanLabel, restartWorker, resumePolling, retryJob, scanLargeFormatNow, sendLargeFormatBatch, updateSettings } from "@/lib/tauri";
 import type { AppUpdateStatus, JobRecord, LargeFormatBatch, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
 
 function reduceEvent(snapshot: WorkerSnapshot, event: WorkerEvent): WorkerSnapshot {
@@ -114,6 +114,7 @@ export function useWorkerStore() {
     removeLargeFormatBatch: (batchId: string) => updateSnapshot(removeLargeFormatBatch(batchId)),
     deleteLargeFormatJob: (jobId: string) => updateSnapshot(deleteLargeFormatJob(jobId)),
     retryJob: (jobId: string) => updateSnapshot(retryJob(jobId)),
+    removeLocalJob: (jobId: string) => updateSnapshot(removeLocalWorkerJob(jobId)),
     recoverRemoteJob: (job: JobRecord) => updateSnapshot(recoverRemoteJob(job)),
     reprintJob: (jobId: string) => updateSnapshot(reprintJob(jobId)),
     printPackingSlip: (jobId: string) => updateSnapshot(printWorkerPackingSlip(jobId)),
@@ -149,6 +150,7 @@ export function useWorkerStore() {
     removeLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
     deleteLargeFormatJob: (jobId: string) => Promise<WorkerSnapshot>;
     retryJob: (jobId: string) => Promise<WorkerSnapshot>;
+    removeLocalJob: (jobId: string) => Promise<WorkerSnapshot>;
     recoverRemoteJob: (job: JobRecord) => Promise<WorkerSnapshot>;
     reprintJob: (jobId: string) => Promise<WorkerSnapshot>;
     printPackingSlip: (jobId: string) => Promise<WorkerSnapshot>;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Check, MapPin, Printer, Search, Tag, X } from "lucide-react";
+import { Check, MapPin, Printer, Search, Tag, Trash2, X } from "lucide-react";
 import { formatReceiverJobRoute, formatReceiverJobSource, inferReceiverJobSource } from "@/lib/receiver-contract";
 import { openPathInOs, searchReceiverOrders, toAssetUrl, toAuthenticatedAssetUrl, toLocalAssetPreviewUrl } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
@@ -579,6 +579,7 @@ function JobRow({
   printPackingSlip,
   printLabel,
   forceCompleteJob,
+  removeLocalJob,
   onOpen,
 }: {
   job: JobRecord;
@@ -588,6 +589,7 @@ function JobRow({
   printPackingSlip: (jobId: string) => void;
   printLabel: (jobId: string) => void;
   forceCompleteJob: (jobId: string) => void;
+  removeLocalJob: (jobId: string) => void;
   onOpen: () => void;
 }) {
   const items = getDisplayItems(job);
@@ -599,6 +601,7 @@ function JobRow({
   const canPrintLabel = Boolean(job.shipmentId || job.orderId) && !isPending;
   const hasCachedLabel = Boolean(job.shippingLabelPath);
   const canForceComplete = job.status === "processing" && !isPending;
+  const canRemoveLocal = ["failed", "completed"].includes(job.status) && !isPending;
 
   return (
     <tr className="cursor-pointer border-t border-white/10 align-top transition hover:bg-white/[0.03]" onClick={onOpen}>
@@ -683,6 +686,19 @@ function JobRow({
               <Check className="h-4 w-4" />
             </button>
           ) : null}
+          {canRemoveLocal ? (
+            <button
+              type="button"
+              title="Remove Local Job"
+              onClick={(event) => {
+                event.stopPropagation();
+                removeLocalJob(job.id);
+              }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-500/20 text-rose-200 transition hover:border-rose-400/30 hover:bg-rose-500/10"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
       </td>
     </tr>
@@ -698,7 +714,7 @@ export function JobsView({
   queueDescription?: string;
   sourceFilter?: string | null;
 }) {
-  const { snapshot, recentJobs, reprintJob, recoverRemoteJob, printPackingSlip, printLabel, forceCompleteJob, isPending } = useWorkerStoreContext();
+  const { snapshot, recentJobs, reprintJob, recoverRemoteJob, printPackingSlip, printLabel, forceCompleteJob, removeLocalJob, isPending } = useWorkerStoreContext();
   const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
   const [query, setQuery] = useState("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -997,6 +1013,7 @@ export function JobsView({
                       printPackingSlip={printPackingSlip}
                       printLabel={printLabel}
                       forceCompleteJob={forceCompleteJob}
+                      removeLocalJob={removeLocalJob}
                       onOpen={() => setSelectedJobId(job.id)}
                     />
                   ))}
