@@ -7,6 +7,16 @@ import { fetchReceiverRoutes, getInstalledPrinters, getLastSuccessfulPxSearch, l
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import type { InstalledPrinter, ReceiverRoute, ReceiverStoreLoginResponse, WorkerSettings } from "@/types/app";
 
+type SettingsTab = "overview" | "connection" | "printing" | "storage" | "large_format";
+
+const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "connection", label: "Connection" },
+  { id: "printing", label: "Printing" },
+  { id: "storage", label: "Storage" },
+  { id: "large_format", label: "Large Format" },
+];
+
 type FolderFieldProps = {
   label: string;
   value: string;
@@ -160,6 +170,7 @@ function SettingsSection({
 export function SettingsView() {
   const { snapshot, appUpdate, updateSettings, restartWorker, relaunchApp, checkForUpdates, downloadLatestBuild, isPending } = useWorkerStoreContext();
   const [formState, setFormState] = useState<WorkerSettings>(snapshot.settings);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("large_format");
   const [printers, setPrinters] = useState<InstalledPrinter[]>([]);
   const [isLoadingPrinters, setIsLoadingPrinters] = useState(false);
   const [printerError, setPrinterError] = useState<string | null>(null);
@@ -381,11 +392,29 @@ export function SettingsView() {
       {updateStatusMessage ? <p className="text-sm text-slate-400">{updateStatusMessage}</p> : null}
       {operationsError ? <p className="text-sm text-rose-600">{operationsError}</p> : null}
 
-      <SettingsSection
-        eyebrow="Operations"
-        title="Runtime Controls"
-        description=""
-      >
+      <div className="rounded-[1.5rem] border border-white/10 bg-[#0c1826]/88 p-3 shadow-[0_22px_60px_rgba(2,6,23,0.34)]">
+        <div className="flex flex-wrap gap-2">
+          {settingsTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={activeTab === tab.id
+                ? "rounded-2xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950"
+                : "rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.08]"}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === "overview" ? (
+        <SettingsSection
+          eyebrow="Operations"
+          title="Runtime Controls"
+          description=""
+        >
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:col-span-2">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
@@ -422,13 +451,15 @@ export function SettingsView() {
             ))}
           </div>
         </div>
-      </SettingsSection>
+        </SettingsSection>
+      ) : null}
 
-      <SettingsSection
-        eyebrow="Connection"
-        title="Backend And Store"
-        description=""
-      >
+      {activeTab === "connection" ? (
+        <SettingsSection
+          eyebrow="Connection"
+          title="Backend And Store"
+          description=""
+        >
         <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:col-span-2">
           <div>
             <p className="text-sm font-medium text-slate-100">Store login</p>
@@ -588,13 +619,15 @@ export function SettingsView() {
           <input className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" min={5} max={300} value={formState.pollingIntervalSeconds} onChange={(event) => updateField("pollingIntervalSeconds", Number(event.target.value))} />
         </label>
 
-      </SettingsSection>
+        </SettingsSection>
+      ) : null}
 
-      <SettingsSection
-        eyebrow="Printing"
-        title="Output Printers"
-        description=""
-      >
+      {activeTab === "printing" ? (
+        <SettingsSection
+          eyebrow="Printing"
+          title="Output Printers"
+          description=""
+        >
         <PrinterField
           label="Packing slip printer"
           value={formState.packingSlipPrinterName}
@@ -619,13 +652,15 @@ export function SettingsView() {
           {printerError ? <p className="text-xs text-rose-600">{printerError}</p> : null}
           {!printerError && printers.length === 0 ? <p className="text-xs text-slate-500">No installed printers detected.</p> : null}
         </div>
-      </SettingsSection>
+        </SettingsSection>
+      ) : null}
 
-      <SettingsSection
-        eyebrow="Storage"
-        title="Downloads And Hot Folders"
-        description=""
-      >
+      {activeTab === "storage" ? (
+        <SettingsSection
+          eyebrow="Storage"
+          title="Downloads And Hot Folders"
+          description=""
+        >
         <FolderField label="Download directory" value={formState.downloadDirectory} onChange={(value) => updateField("downloadDirectory", value)} onOpen={openConfiguredFolder} />
 
         <FolderField label="Default hot folder" value={formState.hotFolderPath} onChange={(value) => updateField("hotFolderPath", value)} onOpen={openConfiguredFolder} />
@@ -653,7 +688,133 @@ export function SettingsView() {
           placeholder="Used when printer route is Large Format"
           onOpen={openConfiguredFolder}
         />
-      </SettingsSection>
+        </SettingsSection>
+      ) : null}
+
+      {activeTab === "large_format" ? (
+        <SettingsSection
+          eyebrow="Large Format"
+          title="Hot-Folder Batching"
+          description="Standalone large-format workflow for Lustre prints only. Incoming files are treated as already sized. The worker scans separate Photo Zone and PostSnap local hot folders into one shared queue, batches waiting images, generates a combined PDF, and can either send approved output into the large-format hot folder or print directly via macOS. ICC/profile handling stays downstream in the Canon/macOS preset workflow, not in PX-Receiver."
+        >
+        <FolderField
+          label="Photo Zone Large Format Hot Folder"
+          value={formState.largeFormatPhotozoneInputFolderPath}
+          onChange={(value) => updateField("largeFormatPhotozoneInputFolderPath", value)}
+          placeholder="Photo Zone large-format input folder"
+          onOpen={openConfiguredFolder}
+        />
+
+        <FolderField
+          label="PostSnap Large Format Hot Folder"
+          value={formState.largeFormatPostsnapInputFolderPath}
+          onChange={(value) => updateField("largeFormatPostsnapInputFolderPath", value)}
+          placeholder="PostSnap large-format input folder"
+          onOpen={openConfiguredFolder}
+        />
+
+        <FolderField
+          label="Large Format output folder"
+          value={formState.largeFormatOutputFolderPath}
+          onChange={(value) => updateField("largeFormatOutputFolderPath", value)}
+          placeholder="Generated combined PDFs are written here"
+          onOpen={openConfiguredFolder}
+        />
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Batching interval (minutes)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" min="1" value={formState.largeFormatBatchingIntervalMinutes} onChange={(event) => updateField("largeFormatBatchingIntervalMinutes", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Roll width (in)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatRollWidthIn} onChange={(event) => updateField("largeFormatRollWidthIn", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Gap between prints (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatGapMm} onChange={(event) => updateField("largeFormatGapMm", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Leader allowance (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatLeaderMm} onChange={(event) => updateField("largeFormatLeaderMm", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Trailer allowance (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatTrailerMm} onChange={(event) => updateField("largeFormatTrailerMm", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Left margin (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" min="0" value={formState.largeFormatLeftMarginMm} onChange={(event) => updateField("largeFormatLeftMarginMm", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Max batch length (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="1" min="1" value={formState.largeFormatMaxBatchLengthMm} onChange={(event) => updateField("largeFormatMaxBatchLengthMm", Number(event.target.value))} />
+          <p className="text-xs leading-5 text-slate-500">Default is 1750 mm, roughly capped around two A1 pieces plus spacing, to keep guillotine finishing manageable.</p>
+        </label>
+
+        <PrinterField
+          label="Large Format printer"
+          value={formState.largeFormatPrinterName}
+          emptyOptionLabel="Choose a printer"
+          printers={printers}
+          isLoadingPrinters={isLoadingPrinters}
+          onChange={(value) => updateField("largeFormatPrinterName", value)}
+          onRefresh={() => {
+            void loadPrinters();
+          }}
+        />
+
+        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" checked={formState.largeFormatAutoApproveEnabled} onChange={(event) => updateField("largeFormatAutoApproveEnabled", event.target.checked)} />
+          Auto-approve batches when waste is below the threshold
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Auto-approve max waste (%)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatAutoApproveMaxWastePercent} onChange={(event) => updateField("largeFormatAutoApproveMaxWastePercent", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Edge border thickness (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatEdgeBorderMm} onChange={(event) => updateField("largeFormatEdgeBorderMm", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Filename caption reserve (mm)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.1" value={formState.largeFormatFilenameCaptionHeightMm} onChange={(event) => updateField("largeFormatFilenameCaptionHeightMm", Number(event.target.value))} />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Filename caption font size (pt)</span>
+          <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="0.5" value={formState.largeFormatFilenameCaptionFontSizePt} onChange={(event) => updateField("largeFormatFilenameCaptionFontSizePt", Number(event.target.value))} />
+        </label>
+
+        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" checked={formState.largeFormatAutoSend} onChange={(event) => updateField("largeFormatAutoSend", event.target.checked)} />
+          Auto-send approved large-format batches
+        </label>
+
+        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" checked={formState.largeFormatDirectPrint} onChange={(event) => updateField("largeFormatDirectPrint", event.target.checked)} />
+          Direct print instead of hot folder
+        </label>
+
+        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" checked={formState.largeFormatAutoBorderIfLightEdge} onChange={(event) => updateField("largeFormatAutoBorderIfLightEdge", event.target.checked)} />
+          Add a 1 mm black border when the image edge is white/off-white
+        </label>
+
+        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" checked={formState.largeFormatPrintFilenameCaptions} onChange={(event) => updateField("largeFormatPrintFilenameCaptions", event.target.checked)} />
+          Print the filename beneath each image
+        </label>
+        </SettingsSection>
+      ) : null}
     </form>
   );
 }

@@ -27,9 +27,98 @@ export type WorkerSettings = {
   photoPrintHotFolderPath: string;
   photoGiftHotFolderPath: string;
   largeFormatHotFolderPath: string;
+  largeFormatPhotozoneInputFolderPath: string;
+  largeFormatPostsnapInputFolderPath: string;
+  largeFormatOutputFolderPath: string;
+  largeFormatBatchingIntervalMinutes: number;
+  largeFormatRollWidthIn: number;
+  largeFormatGapMm: number;
+  largeFormatLeaderMm: number;
+  largeFormatTrailerMm: number;
+  largeFormatLeftMarginMm: number;
+  largeFormatMaxBatchLengthMm: number;
+  largeFormatAutoSend: boolean;
+  largeFormatDirectPrint: boolean;
+  largeFormatPrinterName: string;
+  largeFormatAutoApproveEnabled: boolean;
+  largeFormatAutoApproveMaxWastePercent: number;
+  largeFormatAutoBorderIfLightEdge: boolean;
+  largeFormatEdgeBorderMm: number;
+  largeFormatPrintFilenameCaptions: boolean;
+  largeFormatFilenameCaptionHeightMm: number;
+  largeFormatFilenameCaptionFontSizePt: number;
   packingSlipPrinterName: string;
   shippingLabelPrinterName: string;
   useMockBackend: boolean;
+};
+
+export type LargeFormatJobStatus = "waiting" | "needs_review" | "batched" | "ready" | "failed";
+export type LargeFormatBatchStatus = "pending" | "ready" | "approved" | "printing" | "sent" | "failed" | "cancelled";
+
+export type LargeFormatPlacement = {
+  jobId: string;
+  filename: string;
+  xMm: number;
+  yMm: number;
+  placedWidthMm: number;
+  placedHeightMm: number;
+  rotated: boolean;
+  sortOrder: number;
+  addBlackBorder: boolean;
+};
+
+export type LargeFormatJob = {
+  id: string;
+  filename: string;
+  originalPath: string;
+  widthIn?: number | null;
+  heightIn?: number | null;
+  mediaType: string;
+  quantity: number;
+  source: string;
+  status: LargeFormatJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  parseSource?: string | null;
+  notes?: string | null;
+  needsBorder: boolean;
+  batchId?: string | null;
+};
+
+export type LargeFormatBatch = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  status: LargeFormatBatchStatus;
+  mediaType: string;
+  rollWidthIn: number;
+  gapMm: number;
+  leaderMm: number;
+  trailerMm: number;
+  captionHeightMm: number;
+  usedLengthMm: number;
+  wastePercent: number;
+  outputPdfPath?: string | null;
+  hotFolderSentAt?: string | null;
+  notes?: string | null;
+  placements: LargeFormatPlacement[];
+};
+
+export type LargeFormatActivity = {
+  id: string;
+  timestamp: string;
+  event: string;
+  message: string;
+  level: LogLevel;
+};
+
+export type LargeFormatState = {
+  jobs: LargeFormatJob[];
+  batches: LargeFormatBatch[];
+  activity: LargeFormatActivity[];
+  activeBatchId?: string | null;
+  lastScanAt?: string | null;
+  lastProcessedAt?: string | null;
 };
 
 export type InstalledPrinter = {
@@ -161,6 +250,7 @@ export type WorkerSnapshot = {
   scanner: ScannerState;
   jobs: JobRecord[];
   logs: LogRecord[];
+  largeFormat: LargeFormatState;
 };
 
 export type AppUpdateStatus = {

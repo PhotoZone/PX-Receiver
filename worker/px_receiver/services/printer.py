@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,9 +16,16 @@ except Exception:  # noqa: BLE001
     win32print = None
 
 
-def print_pdf(pdf_path: Path, instructions: PrintInstructions | None) -> None:
+def extract_cups_job_id(output: str) -> str | None:
+    match = re.search(r"request id is\s+([^\s]+)", output, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+
+def print_pdf(pdf_path: Path, instructions: PrintInstructions | None) -> str | None:
     if instructions is None or not instructions.auto_print_pdf:
-        return
+        return None
 
     copies = max(1, instructions.copies)
     printer_name = instructions.printer_name
@@ -27,12 +35,12 @@ def print_pdf(pdf_path: Path, instructions: PrintInstructions | None) -> None:
         if printer_name:
             command.extend(["-d", printer_name])
         command.append(str(pdf_path))
-        subprocess.run(command, check=True)
-        return
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        return extract_cups_job_id((result.stdout or "") + "\n" + (result.stderr or ""))
 
     if sys.platform.startswith("win"):
         print_pdf_windows(pdf_path, printer_name=printer_name, copies=copies)
-        return
+        return None
 
     raise RuntimeError(f"PDF printing is not implemented for platform {sys.platform}")
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import sys
 import threading
@@ -13,9 +14,17 @@ from typing import Any
 from px_receiver.config import build_runtime_paths, load_settings, save_settings
 from uuid import uuid4
 
-from px_receiver.models import AssetKind, AssetRecord, HealthState, JobRecord, JobStatus, LogLevel, LogRecord, PrintInstructions, ScanRecord, ScannerState, WorkerSettings, WorkerSnapshot, now_iso
+from px_receiver.models import AssetKind, AssetRecord, HealthState, JobRecord, JobStatus, LargeFormatActivity, LargeFormatBatch, LargeFormatBatchStatus, LargeFormatJob, LargeFormatJobStatus, LargeFormatState, LogLevel, LogRecord, PrintInstructions, ScanRecord, ScannerState, WorkerSettings, WorkerSnapshot, now_iso
 from px_receiver.services.backend import BackendClient, build_backend_client
 from px_receiver.services.filesystem import cache_external_shipping_label_pdf, cache_shipping_label_pdf, prune_working_directories, release_asset_to_hot_folder, write_job_asset
+from px_receiver.services.large_format import (
+    build_large_format_job,
+    create_layout_batch,
+    large_format_input_paths,
+    large_format_output_path,
+    render_batch_pdf,
+    send_batch_to_hot_folder,
+)
 from px_receiver.services.printer import print_pdf
 from px_receiver.services.scanner import ScannerService
 from px_receiver.services.shipstation import create_shipping_label_pdf
@@ -47,10 +56,19 @@ class WorkerRuntime:
         )
         prune_working_directories(self.settings, self.snapshot.jobs)
         hydrated_scans = self.local_state.hydrate_scans()
+        hydrated_large_format_jobs = self.local_state.hydrate_large_format_jobs()
+        hydrated_large_format_batches = self.local_state.hydrate_large_format_batches()
+        hydrated_large_format_activity = self.local_state.hydrate_large_format_activity()
         self.snapshot.scanner = ScannerState(
             recent_scans=hydrated_scans,
             last_scan_at=hydrated_scans[0].timestamp if hydrated_scans else None,
             last_code=hydrated_scans[0].code if hydrated_scans else None,
+        )
+        self.snapshot.large_format = LargeFormatState(
+            jobs=hydrated_large_format_jobs,
+            batches=hydrated_large_format_batches,
+            activity=hydrated_large_format_activity,
+            active_batch_id=hydrated_large_format_batches[0].id if hydrated_large_format_batches else None,
         )
         self.snapshot.queue_count = sum(
             1 for item in self.snapshot.jobs if item.status in {JobStatus.PENDING, JobStatus.DOWNLOADING, JobStatus.DOWNLOADED, JobStatus.PROCESSING}
@@ -64,6 +82,8 @@ class WorkerRuntime:
         self.alerted_failure_keys: set[str] = set()
         self.active_downloads: dict[str, threading.Thread] = {}
         self.next_poll_at = 0.0
+        self.next_large_format_scan_at = 0.0
+        self.next_large_format_process_at = 0.0
         self.scanner = ScannerService(
             on_scan=self.handle_scan,
             on_status=self.handle_scanner_status,
@@ -199,6 +219,295 @@ class WorkerRuntime:
         self.local_state.remember_log(log)
         self.local_state.save(self.paths["state"])
         self.emit("log", log.to_payload())
+
+    def emit_large_format_activity(self, event: str, message: str, level: LogLevel = LogLevel.INFO) -> None:
+        entry = LargeFormatActivity(event=event, message=message, level=level)
+        self.snapshot.large_format.activity = [entry, *self.snapshot.large_format.activity][:250]
+        self.local_state.remember_large_format_activity(entry)
+        self.local_state.save(self.paths["state"])
+        self.emit_snapshot()
+
+    def remember_large_format_job(self, job: LargeFormatJob) -> None:
+        self.snapshot.large_format.jobs = [job, *[item for item in self.snapshot.large_format.jobs if item.id != job.id]][:250]
+        self.local_state.remember_large_format_job(job)
+        self.local_state.save(self.paths["state"])
+
+    def remember_large_format_batch(self, batch: LargeFormatBatch) -> None:
+        self.snapshot.large_format.batches = [batch, *[item for item in self.snapshot.large_format.batches if item.id != batch.id]][:120]
+        self.snapshot.large_format.active_batch_id = batch.id
+        self.local_state.remember_large_format_batch(batch)
+        self.local_state.save(self.paths["state"])
+
+    def scan_large_format_folder(self) -> None:
+        input_dirs = large_format_input_paths(self.settings)
+        output_dir = large_format_output_path(self.settings)
+        for input_dir in input_dirs.values():
+            input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        existing_paths = {item.original_path for item in self.snapshot.large_format.jobs}
+        discovered = 0
+        for source, input_dir in input_dirs.items():
+            for entry in sorted(input_dir.iterdir(), key=lambda item: item.name.lower()):
+                if not entry.is_file():
+                    continue
+                if str(entry) in existing_paths:
+                    continue
+                job = build_large_format_job(entry, source)
+                self.remember_large_format_job(job)
+                discovered += 1
+
+        self.snapshot.large_format.last_scan_at = now_iso()
+        self.local_state.save(self.paths["state"])
+        if discovered:
+            self.emit_large_format_activity(
+                "scan.completed",
+                f"Scanned Photo Zone and PostSnap large-format hot folders and added {discovered} new job(s).",
+            )
+        else:
+            self.emit_snapshot()
+
+    def process_large_format_batches(self) -> None:
+        waiting_jobs = [job for job in self.snapshot.large_format.jobs if job.status == LargeFormatJobStatus.WAITING]
+        if not waiting_jobs:
+            self.snapshot.large_format.last_processed_at = now_iso()
+            self.emit_snapshot()
+            return
+
+        try:
+            batch = create_layout_batch(self.settings, waiting_jobs)
+        except RuntimeError as exc:
+            blocked_job = waiting_jobs[0]
+            updated_job = replace(
+                blocked_job,
+                status=LargeFormatJobStatus.NEEDS_REVIEW,
+                updated_at=now_iso(),
+                notes=str(exc),
+            )
+            self.remember_large_format_job(updated_job)
+            self.snapshot.large_format.last_processed_at = now_iso()
+            self.emit_large_format_activity("batch.validation_failed", str(exc), LogLevel.WARNING)
+            return
+
+        jobs_by_id = {job.id: job for job in self.snapshot.large_format.jobs}
+        output_path = render_batch_pdf(self.settings, batch, jobs_by_id)
+        batch.output_pdf_path = output_path
+        batch.status = LargeFormatBatchStatus.READY
+        batch.updated_at = now_iso()
+        self.remember_large_format_batch(batch)
+
+        included_job_ids = {placement.job_id for placement in batch.placements}
+        for job in waiting_jobs:
+            if job.id not in included_job_ids:
+                continue
+            updated_job = replace(job, status=LargeFormatJobStatus.BATCHED, updated_at=now_iso(), batch_id=batch.id)
+            self.remember_large_format_job(updated_job)
+
+        self.snapshot.large_format.last_processed_at = now_iso()
+        deferred_count = max(0, len(waiting_jobs) - len(included_job_ids))
+        message = f"Created large-format batch {batch.id[-8:]} from {len(included_job_ids)} job(s). Estimated length {batch.used_length_mm:.0f} mm."
+        if deferred_count:
+            message += f" Left {deferred_count} job(s) waiting to stay within the {self.settings.large_format_max_batch_length_mm:.0f} mm max length."
+        self.emit_large_format_activity(
+            "batch.created",
+            message,
+        )
+
+        if self.settings.large_format_auto_approve_enabled and batch.waste_percent <= self.settings.large_format_auto_approve_max_waste_percent:
+            self.approve_large_format_batch(batch.id)
+            self.emit_large_format_activity(
+                "batch.auto_approved",
+                f"Auto-approved large-format batch {batch.id[-8:]} because waste {batch.waste_percent:.1f}% is within the {self.settings.large_format_auto_approve_max_waste_percent:.1f}% threshold.",
+            )
+            if self.settings.large_format_auto_send:
+                self.send_large_format_batch(batch.id)
+
+    def approve_large_format_batch(self, batch_id: str) -> None:
+        batch = next((item for item in self.snapshot.large_format.batches if item.id == batch_id), None)
+        if batch is None:
+            self.emit_large_format_activity("batch.error", f"Approval requested for unknown large-format batch {batch_id}.", LogLevel.WARNING)
+            return
+        updated = replace(batch, status=LargeFormatBatchStatus.APPROVED, updated_at=now_iso())
+        self.remember_large_format_batch(updated)
+        self.emit_large_format_activity("batch.approved", f"Approved large-format batch {batch_id[-8:]}.")
+
+    def send_large_format_batch(self, batch_id: str) -> None:
+        batch = next((item for item in self.snapshot.large_format.batches if item.id == batch_id), None)
+        if batch is None:
+            self.emit_large_format_activity("batch.error", f"Send requested for unknown large-format batch {batch_id}.", LogLevel.WARNING)
+            return
+        if self.settings.large_format_direct_print:
+            if not batch.output_pdf_path:
+                self.emit_large_format_activity("batch.error", f"Cannot print batch {batch_id[-8:]} because no PDF has been generated.", LogLevel.WARNING)
+                return
+            printer_name = self.settings.large_format_printer_name.strip()
+            cups_job_id = print_pdf(
+                Path(batch.output_pdf_path),
+                PrintInstructions(
+                    auto_print_pdf=True,
+                    printer_name=printer_name or None,
+                    copies=1,
+                ),
+            )
+            destination = f"Printing via {printer_name or 'default macOS printer'}"
+            if cups_job_id:
+                destination = f"{destination} ({cups_job_id})"
+            event_message = (
+                f"Submitted large-format batch {batch_id[-8:]} to printer {printer_name}."
+                if printer_name
+                else f"Submitted large-format batch {batch_id[-8:]} to the default macOS printer."
+            )
+            if cups_job_id:
+                event_message += f" CUPS job {cups_job_id}."
+            updated = replace(batch, status=LargeFormatBatchStatus.PRINTING, updated_at=now_iso(), notes=destination)
+        else:
+            destination = send_batch_to_hot_folder(self.settings, batch)
+            event_message = f"Sent large-format batch {batch_id[-8:]} to {destination}."
+            updated = replace(batch, status=LargeFormatBatchStatus.SENT, updated_at=now_iso(), hot_folder_sent_at=now_iso(), notes=destination)
+        self.remember_large_format_batch(updated)
+        if self.settings.large_format_direct_print:
+            self.emit_large_format_activity("batch.printing", event_message)
+        else:
+            for job in [item for item in self.snapshot.large_format.jobs if item.batch_id == batch_id]:
+                self.remember_large_format_job(replace(job, status=LargeFormatJobStatus.READY, updated_at=now_iso()))
+            self.emit_large_format_activity("batch.sent", event_message)
+
+    def regenerate_large_format_batch(self, batch_id: str) -> None:
+        batch = next((item for item in self.snapshot.large_format.batches if item.id == batch_id), None)
+        if batch is None:
+            self.emit_large_format_activity("batch.error", f"Regenerate requested for unknown large-format batch {batch_id}.", LogLevel.WARNING)
+            return
+        if batch.status == LargeFormatBatchStatus.SENT:
+            self.emit_large_format_activity("batch.error", f"Cannot regenerate batch {batch_id[-8:]} because it has already been sent to the hot folder.", LogLevel.WARNING)
+            return
+
+        batch_jobs = [item for item in self.snapshot.large_format.jobs if item.batch_id == batch_id]
+        if not batch_jobs:
+            self.emit_large_format_activity("batch.error", f"Cannot regenerate batch {batch_id[-8:]} because no jobs are attached to it.", LogLevel.WARNING)
+            return
+
+        if batch.output_pdf_path:
+            try:
+                if Path(batch.output_pdf_path).exists():
+                    Path(batch.output_pdf_path).unlink()
+            except OSError as exc:
+                self.emit_large_format_activity("batch.warning", f"Could not remove previous PDF for batch {batch_id[-8:]}: {exc}", LogLevel.WARNING)
+
+        try:
+            regenerated = create_layout_batch(self.settings, batch_jobs)
+            jobs_by_id = {job.id: job for job in self.snapshot.large_format.jobs}
+            regenerated.output_pdf_path = render_batch_pdf(self.settings, regenerated, jobs_by_id)
+            regenerated.status = LargeFormatBatchStatus.READY
+            regenerated.updated_at = now_iso()
+        except RuntimeError as exc:
+            self.emit_large_format_activity("batch.validation_failed", f"Regeneration failed for batch {batch_id[-8:]}: {exc}", LogLevel.WARNING)
+            return
+
+        regenerated = replace(regenerated, id=batch.id, created_at=batch.created_at, hot_folder_sent_at=None)
+        self.remember_large_format_batch(regenerated)
+
+        included_job_ids = {placement.job_id for placement in regenerated.placements}
+        for job in batch_jobs:
+            next_status = LargeFormatJobStatus.BATCHED if job.id in included_job_ids else LargeFormatJobStatus.WAITING
+            next_batch_id = regenerated.id if job.id in included_job_ids else None
+            self.remember_large_format_job(replace(job, status=next_status, batch_id=next_batch_id, updated_at=now_iso()))
+
+        self.snapshot.large_format.last_processed_at = now_iso()
+        self.emit_large_format_activity(
+            "batch.regenerated",
+            f"Regenerated large-format batch {batch_id[-8:]} with length {regenerated.used_length_mm:.0f} mm and waste {regenerated.waste_percent:.1f}%.",
+        )
+
+    def delete_large_format_job(self, job_id: str) -> None:
+        job = next((item for item in self.snapshot.large_format.jobs if item.id == job_id), None)
+        if job is None:
+            self.emit_large_format_activity("job.error", f"Delete requested for unknown large-format job {job_id}.", LogLevel.WARNING)
+            return
+
+        attached_batch = next((item for item in self.snapshot.large_format.batches if item.id == job.batch_id), None) if job.batch_id else None
+        if attached_batch is not None and attached_batch.status == LargeFormatBatchStatus.SENT:
+            self.emit_large_format_activity("job.error", f"Cannot delete {job.filename} because batch {attached_batch.id[-8:]} has already been sent.", LogLevel.WARNING)
+            return
+
+        deleted_source = False
+        source_path = Path(job.original_path)
+        input_dirs = list(large_format_input_paths(self.settings).values())
+        try:
+            if source_path.exists():
+                for input_dir in input_dirs:
+                    try:
+                        source_path.relative_to(input_dir)
+                        source_path.unlink()
+                        deleted_source = True
+                        break
+                    except ValueError:
+                        continue
+        except OSError as exc:
+            self.emit_large_format_activity("job.warning", f"Could not delete source file for {job.filename}: {exc}", LogLevel.WARNING)
+
+        self.snapshot.large_format.jobs = [item for item in self.snapshot.large_format.jobs if item.id != job_id]
+        self.local_state.large_format_jobs = [item for item in self.local_state.large_format_jobs if item.get("id") != job_id]
+
+        if attached_batch is not None:
+            remaining_batch_jobs = [item for item in self.snapshot.large_format.jobs if item.batch_id == attached_batch.id]
+            if not remaining_batch_jobs:
+                if attached_batch.output_pdf_path:
+                    try:
+                        pdf_path = Path(attached_batch.output_pdf_path)
+                        if pdf_path.exists():
+                            pdf_path.unlink()
+                    except OSError as exc:
+                        self.emit_large_format_activity("batch.warning", f"Could not remove generated PDF for batch {attached_batch.id[-8:]}: {exc}", LogLevel.WARNING)
+                self.snapshot.large_format.batches = [item for item in self.snapshot.large_format.batches if item.id != attached_batch.id]
+                self.local_state.large_format_batches = [item for item in self.local_state.large_format_batches if item.get("id") != attached_batch.id]
+                self.emit_large_format_activity("batch.removed", f"Removed empty large-format batch {attached_batch.id[-8:]} after deleting its last job.")
+            else:
+                self.regenerate_large_format_batch(attached_batch.id)
+
+        self.snapshot.large_format.active_batch_id = self.snapshot.large_format.batches[0].id if self.snapshot.large_format.batches else None
+        self.local_state.save(self.paths["state"])
+        suffix = " and removed its source file." if deleted_source else "."
+        self.emit_large_format_activity("job.deleted", f"Deleted large-format job {job.filename}{suffix}")
+        self.emit_snapshot()
+
+    def remove_large_format_batch(self, batch_id: str) -> None:
+        batch = next((item for item in self.snapshot.large_format.batches if item.id == batch_id), None)
+        if batch is None:
+            self.emit_large_format_activity("batch.error", f"Remove requested for unknown large-format batch {batch_id}.", LogLevel.WARNING)
+            return
+        if batch.status == LargeFormatBatchStatus.SENT:
+            self.emit_large_format_activity("batch.error", f"Cannot remove batch {batch_id[-8:]} because it has already been sent to the hot folder.", LogLevel.WARNING)
+            return
+
+        if batch.output_pdf_path:
+            try:
+                if Path(batch.output_pdf_path).exists():
+                    Path(batch.output_pdf_path).unlink()
+            except OSError as exc:
+                self.emit_large_format_activity("batch.warning", f"Could not remove generated PDF for batch {batch_id[-8:]}: {exc}", LogLevel.WARNING)
+
+        self.snapshot.large_format.batches = [item for item in self.snapshot.large_format.batches if item.id != batch_id]
+        self.local_state.large_format_batches = [item for item in self.local_state.large_format_batches if item.get("id") != batch_id]
+
+        reset_count = 0
+        next_jobs: list[LargeFormatJob] = []
+        for job in self.snapshot.large_format.jobs:
+            if job.batch_id == batch_id:
+                reset_count += 1
+                updated_job = replace(job, batch_id=None, status=LargeFormatJobStatus.WAITING, updated_at=now_iso())
+                next_jobs.append(updated_job)
+                self.local_state.remember_large_format_job(updated_job)
+            else:
+                next_jobs.append(job)
+        self.snapshot.large_format.jobs = next_jobs
+        self.snapshot.large_format.active_batch_id = self.snapshot.large_format.batches[0].id if self.snapshot.large_format.batches else None
+        self.next_large_format_process_at = time.time() + max(60, self.settings.large_format_batching_interval_minutes * 60)
+        self.local_state.save(self.paths["state"])
+        self.emit_large_format_activity(
+            "batch.removed",
+            f"Removed large-format batch {batch_id[-8:]} and returned {reset_count} file(s) to waiting. Automatic re-batching is deferred until the next interval.",
+        )
+        self.emit_snapshot()
 
     def emit_scan(self, scan: ScanRecord) -> None:
         self.snapshot.scanner.recent_scans = [scan, *self.snapshot.scanner.recent_scans][:50]
@@ -574,9 +883,48 @@ class WorkerRuntime:
                 self.force_complete_job(job_id)
             return
 
+        if name == "scan_large_format_now":
+            self.scan_large_format_folder()
+            return
+
+        if name == "process_large_format_now":
+            self.process_large_format_batches()
+            return
+
+        if name == "approve_large_format_batch":
+            batch_id = str(command.get("batch_id", ""))
+            if batch_id:
+                self.approve_large_format_batch(batch_id)
+            return
+
+        if name == "send_large_format_batch":
+            batch_id = str(command.get("batch_id", ""))
+            if batch_id:
+                self.send_large_format_batch(batch_id)
+            return
+
+        if name == "regenerate_large_format_batch":
+            batch_id = str(command.get("batch_id", ""))
+            if batch_id:
+                self.regenerate_large_format_batch(batch_id)
+            return
+
+        if name == "remove_large_format_batch":
+            batch_id = str(command.get("batch_id", ""))
+            if batch_id:
+                self.remove_large_format_batch(batch_id)
+            return
+
+        if name == "delete_large_format_job":
+            job_id = str(command.get("job_id", ""))
+            if job_id:
+                self.delete_large_format_job(job_id)
+            return
+
         if name == "update_settings":
             was_using_mock_backend = self.settings.use_mock_backend
             payload = command.get("settings", {})
+            legacy_large_format_input = payload.get("largeFormatInputFolderPath", self.settings.large_format_photozone_input_folder_path)
             self.settings = WorkerSettings(
                 backend_url=payload.get("backendUrl", self.settings.backend_url),
                 machine_id=payload.get("machineId", self.settings.machine_id),
@@ -591,6 +939,26 @@ class WorkerRuntime:
                 photo_print_hot_folder_path=payload.get("photoPrintHotFolderPath", self.settings.photo_print_hot_folder_path),
                 photo_gift_hot_folder_path=payload.get("photoGiftHotFolderPath", self.settings.photo_gift_hot_folder_path),
                 large_format_hot_folder_path=payload.get("largeFormatHotFolderPath", self.settings.large_format_hot_folder_path),
+                large_format_photozone_input_folder_path=payload.get("largeFormatPhotozoneInputFolderPath", legacy_large_format_input),
+                large_format_postsnap_input_folder_path=payload.get("largeFormatPostsnapInputFolderPath", self.settings.large_format_postsnap_input_folder_path),
+                large_format_output_folder_path=payload.get("largeFormatOutputFolderPath", self.settings.large_format_output_folder_path),
+                large_format_batching_interval_minutes=int(payload.get("largeFormatBatchingIntervalMinutes", self.settings.large_format_batching_interval_minutes)),
+                large_format_roll_width_in=float(payload.get("largeFormatRollWidthIn", self.settings.large_format_roll_width_in)),
+                large_format_gap_mm=float(payload.get("largeFormatGapMm", self.settings.large_format_gap_mm)),
+                large_format_leader_mm=float(payload.get("largeFormatLeaderMm", self.settings.large_format_leader_mm)),
+                large_format_trailer_mm=float(payload.get("largeFormatTrailerMm", self.settings.large_format_trailer_mm)),
+                large_format_left_margin_mm=float(payload.get("largeFormatLeftMarginMm", self.settings.large_format_left_margin_mm)),
+                large_format_max_batch_length_mm=float(payload.get("largeFormatMaxBatchLengthMm", self.settings.large_format_max_batch_length_mm)),
+                large_format_auto_send=bool(payload.get("largeFormatAutoSend", self.settings.large_format_auto_send)),
+                large_format_direct_print=bool(payload.get("largeFormatDirectPrint", self.settings.large_format_direct_print)),
+                large_format_printer_name=payload.get("largeFormatPrinterName", self.settings.large_format_printer_name),
+                large_format_auto_approve_enabled=bool(payload.get("largeFormatAutoApproveEnabled", self.settings.large_format_auto_approve_enabled)),
+                large_format_auto_approve_max_waste_percent=float(payload.get("largeFormatAutoApproveMaxWastePercent", self.settings.large_format_auto_approve_max_waste_percent)),
+                large_format_auto_border_if_light_edge=bool(payload.get("largeFormatAutoBorderIfLightEdge", self.settings.large_format_auto_border_if_light_edge)),
+                large_format_edge_border_mm=float(payload.get("largeFormatEdgeBorderMm", self.settings.large_format_edge_border_mm)),
+                large_format_print_filename_captions=bool(payload.get("largeFormatPrintFilenameCaptions", self.settings.large_format_print_filename_captions)),
+                large_format_filename_caption_height_mm=float(payload.get("largeFormatFilenameCaptionHeightMm", self.settings.large_format_filename_caption_height_mm)),
+                large_format_filename_caption_font_size_pt=float(payload.get("largeFormatFilenameCaptionFontSizePt", self.settings.large_format_filename_caption_font_size_pt)),
                 packing_slip_printer_name=payload.get("packingSlipPrinterName", self.settings.packing_slip_printer_name),
                 shipping_label_printer_name=payload.get("shippingLabelPrinterName", self.settings.shipping_label_printer_name),
                 use_mock_backend=bool(payload.get("useMockBackend", self.settings.use_mock_backend)),
@@ -604,6 +972,8 @@ class WorkerRuntime:
                     1 for item in self.snapshot.jobs if item.status in {JobStatus.PENDING, JobStatus.DOWNLOADING, JobStatus.DOWNLOADED, JobStatus.PROCESSING}
                 )
             self.next_poll_at = 0.0
+            self.next_large_format_scan_at = 0.0
+            self.next_large_format_process_at = 0.0
             self.emit_log(LogLevel.INFO, "Worker settings updated", "config")
             self.emit_snapshot()
             return
@@ -1521,6 +1891,20 @@ class WorkerRuntime:
         while not self.stop_event.is_set():
             self.process_pending_commands()
             self.process_download_results()
+
+            if time.time() >= self.next_large_format_scan_at:
+                try:
+                    self.scan_large_format_folder()
+                except Exception as exc:  # noqa: BLE001
+                    self.emit_large_format_activity("scan.failed", f"Large-format folder scan failed: {exc}", LogLevel.ERROR)
+                self.next_large_format_scan_at = time.time() + 5
+
+            if time.time() >= self.next_large_format_process_at:
+                try:
+                    self.process_large_format_batches()
+                except Exception as exc:  # noqa: BLE001
+                    self.emit_large_format_activity("batch.failed", f"Large-format processing failed: {exc}", LogLevel.ERROR)
+                self.next_large_format_process_at = time.time() + max(60, self.settings.large_format_batching_interval_minutes * 60)
 
             if time.time() >= self.next_poll_at:
                 try:

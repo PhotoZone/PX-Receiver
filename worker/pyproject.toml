@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "px-receiver-worker"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python sidecar for PX Receiver"
 requires-python = ">=3.11"
 dependencies = [
   "Pillow>=11.0",
+  "reportlab>=4.2",
   "pyserial>=3.5",
   "pywin32>=308; platform_system == 'Windows'"
 ]

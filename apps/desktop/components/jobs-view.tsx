@@ -90,6 +90,28 @@ function getDisplayItems(job: JobRecord) {
   }));
 }
 
+function inferDisplaySize(job: JobRecord) {
+  const candidates = [
+    ...getDisplayItems(job).map((item) => item.name),
+    job.productName,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const value = String(candidate).trim();
+    const printSizeMatch = value.match(/\b\d{1,2}x\d{1,2}(?:\.\d)?\b/i);
+    if (printSizeMatch) {
+      return printSizeMatch[0].toUpperCase();
+    }
+
+    const paperSizeMatch = value.match(/\bA[0-6]\b/i);
+    if (paperSizeMatch) {
+      return paperSizeMatch[0].toUpperCase();
+    }
+  }
+
+  return null;
+}
+
 function getFilterLabel(filter: JobStatus | "all") {
   if (filter === "all") {
     return "All";
@@ -569,6 +591,8 @@ function JobRow({
   onOpen: () => void;
 }) {
   const items = getDisplayItems(job);
+  const displaySize = inferDisplaySize(job);
+  const primaryFinish = items[0]?.finish ?? null;
   const orderedAt = formatOrderDateParts(job.orderedAt || job.createdAt);
   const canReprint = ["completed", "downloaded", "processing", "failed"].includes(job.status) && !isPending;
   const canPrintPackingSlip = job.assets.some((asset) => asset.kind === "pdf" && Boolean(asset.localPath)) && !isPending;
@@ -597,9 +621,13 @@ function JobRow({
       </td>
       {showSourceColumn ? (
         <td className="px-4 py-3 text-[13px] text-slate-300">
-          <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]", getSourceBadgeClass(job))}>
-            {formatReceiverJobSource(job)}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]", getSourceBadgeClass(job))}>
+              {formatReceiverJobSource(job)}
+            </span>
+            {displaySize ? <span className="crm-pill crm-pill--border">{displaySize}</span> : null}
+            {primaryFinish ? <span className="crm-pill crm-pill--finish">{primaryFinish}</span> : null}
+          </div>
         </td>
       ) : null}
       <td className="whitespace-nowrap px-4 py-3 text-[13px] text-slate-300">

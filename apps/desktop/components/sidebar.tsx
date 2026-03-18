@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderKanban, LayoutDashboard, Logs, ScanLine, Settings2 } from "lucide-react";
+import { FolderKanban, LayoutDashboard, Logs, Printer, ScanLine, Settings2 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { inferReceiverJobSource } from "@/lib/receiver-contract";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
@@ -15,6 +15,7 @@ const items = [
   { href: "/jobs", label: "Wink", icon: FolderKanban },
   { href: "/jobs/photo-zone", label: "Photo Zone", icon: FolderKanban },
   { href: "/jobs/pzpro", label: "PZPro", icon: FolderKanban },
+  { href: "/large-format", label: "Large Format", icon: Printer },
   { href: "/scanner", label: "Scanner", icon: ScanLine },
   { href: "/logs", label: "Logs", icon: Logs },
   { href: "/settings", label: "Settings", icon: Settings2 },
@@ -29,6 +30,7 @@ export function Sidebar() {
     "/jobs": outstandingJobs.filter((job) => inferReceiverJobSource(job) === "wink").length,
     "/jobs/photo-zone": outstandingJobs.filter((job) => inferReceiverJobSource(job) === "photozone").length,
     "/jobs/pzpro": outstandingJobs.filter((job) => inferReceiverJobSource(job) === "pzpro").length,
+    "/large-format": snapshot.largeFormat.jobs.filter((job) => ["waiting", "needs_review", "batched"].includes(job.status)).length,
   };
 
   return (

@@ -291,6 +291,91 @@ fn poll_worker_now(state: State<'_, RuntimeState>) -> Result<WorkerSnapshot, Str
 }
 
 #[tauri::command]
+fn scan_large_format_now(state: State<'_, RuntimeState>) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.scan_large_format_now().map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
+fn process_large_format_now(state: State<'_, RuntimeState>) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.process_large_format_now().map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
+fn approve_large_format_batch(
+    state: State<'_, RuntimeState>,
+    batch_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.approve_large_format_batch(batch_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
+fn send_large_format_batch(
+    state: State<'_, RuntimeState>,
+    batch_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.send_large_format_batch(batch_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
+fn regenerate_large_format_batch(
+    state: State<'_, RuntimeState>,
+    batch_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.regenerate_large_format_batch(batch_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
+fn remove_large_format_batch(
+    state: State<'_, RuntimeState>,
+    batch_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.remove_large_format_batch(batch_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
+fn delete_large_format_job(
+    state: State<'_, RuntimeState>,
+    job_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.delete_large_format_job(job_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
 fn retry_worker_job(
     state: State<'_, RuntimeState>,
     job_id: String,
@@ -1038,6 +1123,13 @@ pub fn run() {
             pause_worker_polling,
             resume_worker_polling,
             poll_worker_now,
+            scan_large_format_now,
+            process_large_format_now,
+            approve_large_format_batch,
+            send_large_format_batch,
+            regenerate_large_format_batch,
+            remove_large_format_batch,
+            delete_large_format_job,
             retry_worker_job,
             recover_remote_job,
             reprint_worker_job,

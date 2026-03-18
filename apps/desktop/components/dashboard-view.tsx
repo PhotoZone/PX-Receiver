@@ -60,6 +60,28 @@ function inferFinish(job: JobRecord) {
   return normalizeFinish(job.productName);
 }
 
+function inferSize(job: JobRecord) {
+  const candidates = [
+    ...job.items.map((item) => item.name),
+    job.productName,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const value = String(candidate).trim();
+    const printSizeMatch = value.match(/\b\d{1,2}x\d{1,2}(?:\.\d)?\b/i);
+    if (printSizeMatch) {
+      return printSizeMatch[0].toUpperCase();
+    }
+
+    const paperSizeMatch = value.match(/\bA[0-6]\b/i);
+    if (paperSizeMatch) {
+      return paperSizeMatch[0].toUpperCase();
+    }
+  }
+
+  return null;
+}
+
 function StatCard({
   label,
   value,
@@ -95,6 +117,7 @@ function StatCard({
 
 function CompactJobRow({ job }: { job: JobRecord }) {
   const finish = inferFinish(job);
+  const size = inferSize(job);
   const sourceBadgeClass = inferReceiverJobSource(job) === "photozone"
     ? "border-blue-500/20 bg-blue-500/10 text-blue-100"
     : inferReceiverJobSource(job) === "pzpro"
@@ -111,14 +134,13 @@ function CompactJobRow({ job }: { job: JobRecord }) {
           <span className={cn("inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]", sourceBadgeClass)}>
             {formatReceiverJobSource(job)}
           </span>
+          {size ? <span className="crm-pill crm-pill--border">{size}</span> : null}
+          {finish ? <span className="crm-pill crm-pill--finish">{finish}</span> : null}
         </div>
         <p className="truncate text-sm text-slate-400">{job.customerName || job.id}</p>
       </div>
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium text-slate-100">{job.productName}</p>
-          {finish ? <span className="crm-pill crm-pill--finish">{finish}</span> : null}
-        </div>
+        <p className="truncate text-sm font-medium text-slate-100">{job.productName}</p>
       </div>
       <div className="md:justify-self-end">
         <StatusBadge value={job.status} kind="job" />

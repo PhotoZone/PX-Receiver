@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
-from px_receiver.models import JobRecord, LogRecord, ScanRecord, now_iso, parse_iso
+from px_receiver.models import LargeFormatActivity, LargeFormatBatch, LargeFormatJob, JobRecord, LogRecord, ScanRecord, now_iso, parse_iso
 
 RETENTION_DAYS = 7
 
@@ -18,6 +18,9 @@ class LocalState:
     jobs: list[dict] = field(default_factory=list)
     logs: list[dict] = field(default_factory=list)
     scans: list[dict] = field(default_factory=list)
+    large_format_jobs: list[dict] = field(default_factory=list)
+    large_format_batches: list[dict] = field(default_factory=list)
+    large_format_activity: list[dict] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> "LocalState":
@@ -32,6 +35,9 @@ class LocalState:
             jobs=list(payload.get("jobs", [])),
             logs=list(payload.get("logs", [])),
             scans=list(payload.get("scans", [])),
+            large_format_jobs=list(payload.get("largeFormatJobs", [])),
+            large_format_batches=list(payload.get("largeFormatBatches", [])),
+            large_format_activity=list(payload.get("largeFormatActivity", [])),
         )
 
     def save(self, path: Path) -> None:
@@ -46,6 +52,9 @@ class LocalState:
                     "jobs": self.jobs,
                     "logs": self.logs,
                     "scans": self.scans,
+                    "largeFormatJobs": self.large_format_jobs,
+                    "largeFormatBatches": self.large_format_batches,
+                    "largeFormatActivity": self.large_format_activity,
                 },
                 indent=2,
             )
@@ -59,6 +68,9 @@ class LocalState:
         self.jobs = self._prune_items(self.jobs, "updatedAt", cutoff, limit=300)
         self.logs = self._prune_items(self.logs, "timestamp", cutoff, limit=500)
         self.scans = self._prune_items(self.scans, "timestamp", cutoff, limit=200)
+        self.large_format_jobs = self._prune_items(self.large_format_jobs, "updatedAt", cutoff, limit=500)
+        self.large_format_batches = self._prune_items(self.large_format_batches, "updatedAt", cutoff, limit=300)
+        self.large_format_activity = self._prune_items(self.large_format_activity, "timestamp", cutoff, limit=500)
 
     def hydrate_jobs(self) -> list[JobRecord]:
         self.prune_history()
@@ -85,6 +97,33 @@ class LocalState:
     def remember_scan(self, scan: ScanRecord) -> None:
         payload = scan.to_payload()
         self.scans = [payload, *[item for item in self.scans if item.get("id") != scan.id]]
+        self.prune_history()
+
+    def hydrate_large_format_jobs(self) -> list[LargeFormatJob]:
+        self.prune_history()
+        return [LargeFormatJob.from_payload(job) for job in self.large_format_jobs]
+
+    def hydrate_large_format_batches(self) -> list[LargeFormatBatch]:
+        self.prune_history()
+        return [LargeFormatBatch.from_payload(batch) for batch in self.large_format_batches]
+
+    def hydrate_large_format_activity(self) -> list[LargeFormatActivity]:
+        self.prune_history()
+        return [LargeFormatActivity.from_payload(entry) for entry in self.large_format_activity]
+
+    def remember_large_format_job(self, job: LargeFormatJob) -> None:
+        payload = job.to_payload()
+        self.large_format_jobs = [payload, *[item for item in self.large_format_jobs if item.get("id") != job.id]]
+        self.prune_history()
+
+    def remember_large_format_batch(self, batch: LargeFormatBatch) -> None:
+        payload = batch.to_payload()
+        self.large_format_batches = [payload, *[item for item in self.large_format_batches if item.get("id") != batch.id]]
+        self.prune_history()
+
+    def remember_large_format_activity(self, entry: LargeFormatActivity) -> None:
+        payload = entry.to_payload()
+        self.large_format_activity = [payload, *[item for item in self.large_format_activity if item.get("id") != entry.id]]
         self.prune_history()
 
     def mark_inflight(self, job_id: str, kind: str, original_job: JobRecord | None = None) -> None:

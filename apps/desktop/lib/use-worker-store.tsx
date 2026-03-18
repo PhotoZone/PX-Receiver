@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { defaultSnapshot } from "@/lib/defaults";
-import { checkForAppUpdate, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, recoverRemoteJob, reprintJob, reprintWorkerScanLabel, relaunchApp, restartWorker, resumePolling, retryJob, updateSettings } from "@/lib/tauri";
-import type { AppUpdateStatus, JobRecord, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
+import { approveLargeFormatBatch, checkForAppUpdate, deleteLargeFormatJob, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, processLargeFormatNow, recoverRemoteJob, regenerateLargeFormatBatch, removeLargeFormatBatch, reprintJob, reprintWorkerScanLabel, relaunchApp, restartWorker, resumePolling, retryJob, scanLargeFormatNow, sendLargeFormatBatch, updateSettings } from "@/lib/tauri";
+import type { AppUpdateStatus, JobRecord, LargeFormatBatch, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
 
 function reduceEvent(snapshot: WorkerSnapshot, event: WorkerEvent): WorkerSnapshot {
   switch (event.type) {
@@ -105,6 +105,13 @@ export function useWorkerStore() {
     togglePolling: () =>
       updateSnapshot(snapshot.pollingPaused ? resumePolling() : pausePolling()),
     refreshNow: () => updateSnapshot(pollNow()),
+    scanLargeFormatNow: () => updateSnapshot(scanLargeFormatNow()),
+    processLargeFormatNow: () => updateSnapshot(processLargeFormatNow()),
+    approveLargeFormatBatch: (batchId: string) => updateSnapshot(approveLargeFormatBatch(batchId)),
+    sendLargeFormatBatch: (batchId: string) => updateSnapshot(sendLargeFormatBatch(batchId)),
+    regenerateLargeFormatBatch: (batchId: string) => updateSnapshot(regenerateLargeFormatBatch(batchId)),
+    removeLargeFormatBatch: (batchId: string) => updateSnapshot(removeLargeFormatBatch(batchId)),
+    deleteLargeFormatJob: (jobId: string) => updateSnapshot(deleteLargeFormatJob(jobId)),
     retryJob: (jobId: string) => updateSnapshot(retryJob(jobId)),
     recoverRemoteJob: (job: JobRecord) => updateSnapshot(recoverRemoteJob(job)),
     reprintJob: (jobId: string) => updateSnapshot(reprintJob(jobId)),
@@ -124,6 +131,7 @@ export function useWorkerStore() {
     recentLogs: snapshot.logs,
     recentScans: snapshot.scanner.recentScans,
     activeJob: snapshot.jobs.find((job) => job.id === snapshot.activeJobId) ?? null,
+    activeLargeFormatBatch: snapshot.largeFormat.batches.find((batch) => batch.id === snapshot.largeFormat.activeBatchId) ?? null,
   } satisfies {
     snapshot: WorkerSnapshot;
     appUpdate: AppUpdateStatus | null;
@@ -131,6 +139,13 @@ export function useWorkerStore() {
     updateSettings: (settings: WorkerSettings) => Promise<WorkerSnapshot>;
     togglePolling: () => Promise<WorkerSnapshot>;
     refreshNow: () => Promise<WorkerSnapshot>;
+    scanLargeFormatNow: () => Promise<WorkerSnapshot>;
+    processLargeFormatNow: () => Promise<WorkerSnapshot>;
+    approveLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
+    sendLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
+    regenerateLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
+    removeLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
+    deleteLargeFormatJob: (jobId: string) => Promise<WorkerSnapshot>;
     retryJob: (jobId: string) => Promise<WorkerSnapshot>;
     recoverRemoteJob: (job: JobRecord) => Promise<WorkerSnapshot>;
     reprintJob: (jobId: string) => Promise<WorkerSnapshot>;
@@ -146,6 +161,7 @@ export function useWorkerStore() {
     recentLogs: LogRecord[];
     recentScans: ScanRecord[];
     activeJob: JobRecord | null;
+    activeLargeFormatBatch: LargeFormatBatch | null;
   };
 }
 

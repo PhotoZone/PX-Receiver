@@ -65,6 +65,69 @@ export async function pollNow() {
   return invoke<WorkerSnapshot>("poll_worker_now");
 }
 
+export async function scanLargeFormatNow() {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("scan_large_format_now");
+}
+
+export async function processLargeFormatNow() {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("process_large_format_now");
+}
+
+export async function approveLargeFormatBatch(batchId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("approve_large_format_batch", { batchId });
+}
+
+export async function sendLargeFormatBatch(batchId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("send_large_format_batch", { batchId });
+}
+
+export async function regenerateLargeFormatBatch(batchId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("regenerate_large_format_batch", { batchId });
+}
+
+export async function removeLargeFormatBatch(batchId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("remove_large_format_batch", { batchId });
+}
+
+export async function deleteLargeFormatJob(jobId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("delete_large_format_job", { jobId });
+}
+
 export async function retryJob(jobId: string) {
   if (!isTauri()) {
     return defaultSnapshot;

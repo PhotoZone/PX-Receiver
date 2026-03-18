@@ -62,6 +62,28 @@ pub enum LogLevel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum LargeFormatJobStatus {
+    Waiting,
+    NeedsReview,
+    Batched,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LargeFormatBatchStatus {
+    Pending,
+    Ready,
+    Approved,
+    Printing,
+    Sent,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AssetKind {
     Image,
     Pdf,
@@ -92,6 +114,46 @@ pub struct WorkerSettings {
     #[serde(default)]
     pub large_format_hot_folder_path: String,
     #[serde(default)]
+    pub large_format_photozone_input_folder_path: String,
+    #[serde(default)]
+    pub large_format_postsnap_input_folder_path: String,
+    #[serde(default)]
+    pub large_format_output_folder_path: String,
+    #[serde(default)]
+    pub large_format_batching_interval_minutes: u64,
+    #[serde(default)]
+    pub large_format_roll_width_in: f64,
+    #[serde(default)]
+    pub large_format_gap_mm: f64,
+    #[serde(default)]
+    pub large_format_leader_mm: f64,
+    #[serde(default)]
+    pub large_format_trailer_mm: f64,
+    #[serde(default)]
+    pub large_format_left_margin_mm: f64,
+    #[serde(default)]
+    pub large_format_max_batch_length_mm: f64,
+    #[serde(default)]
+    pub large_format_auto_send: bool,
+    #[serde(default)]
+    pub large_format_direct_print: bool,
+    #[serde(default)]
+    pub large_format_printer_name: String,
+    #[serde(default)]
+    pub large_format_auto_approve_enabled: bool,
+    #[serde(default)]
+    pub large_format_auto_approve_max_waste_percent: f64,
+    #[serde(default)]
+    pub large_format_auto_border_if_light_edge: bool,
+    #[serde(default)]
+    pub large_format_edge_border_mm: f64,
+    #[serde(default)]
+    pub large_format_print_filename_captions: bool,
+    #[serde(default)]
+    pub large_format_filename_caption_height_mm: f64,
+    #[serde(default)]
+    pub large_format_filename_caption_font_size_pt: f64,
+    #[serde(default)]
     pub packing_slip_printer_name: String,
     #[serde(default)]
     pub shipping_label_printer_name: String,
@@ -114,6 +176,26 @@ impl Default for WorkerSettings {
             photo_print_hot_folder_path: "//PICSERVER/C8Spool".into(),
             photo_gift_hot_folder_path: "~/HotFolders/Sublimation".into(),
             large_format_hot_folder_path: "~/HotFolders/Large Format".into(),
+            large_format_photozone_input_folder_path: "~/HotFolders/Photo Zone Large Format Hot Folder".into(),
+            large_format_postsnap_input_folder_path: "~/HotFolders/Postsnap Large Format Hot Folder".into(),
+            large_format_output_folder_path: "~/HotFolders/Large Format/Output".into(),
+            large_format_batching_interval_minutes: 10,
+            large_format_roll_width_in: 36.0,
+            large_format_gap_mm: 8.0,
+            large_format_leader_mm: 50.0,
+            large_format_trailer_mm: 50.0,
+            large_format_left_margin_mm: 5.0,
+            large_format_max_batch_length_mm: 1750.0,
+            large_format_auto_send: false,
+            large_format_direct_print: false,
+            large_format_printer_name: String::new(),
+            large_format_auto_approve_enabled: true,
+            large_format_auto_approve_max_waste_percent: 20.0,
+            large_format_auto_border_if_light_edge: true,
+            large_format_edge_border_mm: 1.0,
+            large_format_print_filename_captions: true,
+            large_format_filename_caption_height_mm: 6.0,
+            large_format_filename_caption_font_size_pt: 9.0,
             packing_slip_printer_name: String::new(),
             shipping_label_printer_name: String::new(),
             use_mock_backend: true,
@@ -224,6 +306,82 @@ pub struct LogRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LargeFormatPlacement {
+    pub job_id: String,
+    pub filename: String,
+    pub x_mm: f64,
+    pub y_mm: f64,
+    pub placed_width_mm: f64,
+    pub placed_height_mm: f64,
+    pub rotated: bool,
+    pub sort_order: u32,
+    pub add_black_border: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeFormatJob {
+    pub id: String,
+    pub filename: String,
+    pub original_path: String,
+    pub width_in: Option<f64>,
+    pub height_in: Option<f64>,
+    pub media_type: String,
+    pub quantity: u32,
+    pub source: String,
+    pub status: LargeFormatJobStatus,
+    pub created_at: String,
+    pub updated_at: String,
+    pub parse_source: Option<String>,
+    pub notes: Option<String>,
+    pub needs_border: bool,
+    pub batch_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeFormatBatch {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub status: LargeFormatBatchStatus,
+    pub media_type: String,
+    pub roll_width_in: f64,
+    pub gap_mm: f64,
+    pub leader_mm: f64,
+    pub trailer_mm: f64,
+    pub caption_height_mm: f64,
+    pub used_length_mm: f64,
+    pub waste_percent: f64,
+    pub output_pdf_path: Option<String>,
+    pub hot_folder_sent_at: Option<String>,
+    pub notes: Option<String>,
+    pub placements: Vec<LargeFormatPlacement>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeFormatActivity {
+    pub id: String,
+    pub timestamp: String,
+    pub event: String,
+    pub message: String,
+    pub level: LogLevel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeFormatState {
+    pub jobs: Vec<LargeFormatJob>,
+    pub batches: Vec<LargeFormatBatch>,
+    pub activity: Vec<LargeFormatActivity>,
+    pub active_batch_id: Option<String>,
+    pub last_scan_at: Option<String>,
+    pub last_processed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkerSnapshot {
     pub health: HealthState,
     pub polling_paused: bool,
@@ -235,6 +393,7 @@ pub struct WorkerSnapshot {
     pub scanner: ScannerState,
     pub jobs: Vec<JobRecord>,
     pub logs: Vec<LogRecord>,
+    pub large_format: LargeFormatState,
 }
 
 impl WorkerSnapshot {
@@ -256,6 +415,14 @@ impl WorkerSnapshot {
             },
             jobs: Vec::new(),
             logs: Vec::new(),
+            large_format: LargeFormatState {
+                jobs: Vec::new(),
+                batches: Vec::new(),
+                activity: Vec::new(),
+                active_batch_id: None,
+                last_scan_at: None,
+                last_processed_at: None,
+            },
         }
     }
 }
@@ -303,6 +470,13 @@ enum WorkerCommand {
     Pause,
     Resume,
     PollNow,
+    ScanLargeFormatNow,
+    ProcessLargeFormatNow,
+    ApproveLargeFormatBatch { batch_id: String },
+    SendLargeFormatBatch { batch_id: String },
+    RegenerateLargeFormatBatch { batch_id: String },
+    RemoveLargeFormatBatch { batch_id: String },
+    DeleteLargeFormatJob { job_id: String },
     RetryJob { job_id: String },
     RecoverJob { job: serde_json::Value },
     ReprintJob { job_id: String },
@@ -405,6 +579,34 @@ impl WorkerHandle {
 
     pub fn retry_job(&self, job_id: String) -> Result<(), WorkerError> {
         self.send(WorkerCommand::RetryJob { job_id })
+    }
+
+    pub fn scan_large_format_now(&self) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::ScanLargeFormatNow)
+    }
+
+    pub fn process_large_format_now(&self) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::ProcessLargeFormatNow)
+    }
+
+    pub fn approve_large_format_batch(&self, batch_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::ApproveLargeFormatBatch { batch_id })
+    }
+
+    pub fn send_large_format_batch(&self, batch_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::SendLargeFormatBatch { batch_id })
+    }
+
+    pub fn regenerate_large_format_batch(&self, batch_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::RegenerateLargeFormatBatch { batch_id })
+    }
+
+    pub fn remove_large_format_batch(&self, batch_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::RemoveLargeFormatBatch { batch_id })
+    }
+
+    pub fn delete_large_format_job(&self, job_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::DeleteLargeFormatJob { job_id })
     }
 
     pub fn recover_job(&self, job: serde_json::Value) -> Result<(), WorkerError> {
@@ -696,7 +898,7 @@ fn run_python_dependency_check(python: &Path, root: &Path) -> Result<(), String>
     let output = Command::new(python)
         .arg("-c")
         .arg(
-            "import importlib\nmodules=['px_receiver','PIL','serial']\nmissing=[]\nfor name in modules:\n    try:\n        importlib.import_module(name)\n    except Exception as exc:\n        missing.append(f'{name}: {exc}')\nif missing:\n    raise SystemExit('Missing worker dependencies: ' + '; '.join(missing))\nprint('worker-self-check:ok')",
+            "import importlib\nmodules=['px_receiver','PIL','serial','reportlab']\nmissing=[]\nfor name in modules:\n    try:\n        importlib.import_module(name)\n    except Exception as exc:\n        missing.append(f'{name}: {exc}')\nif missing:\n    raise SystemExit('Missing worker dependencies: ' + '; '.join(missing))\nprint('worker-self-check:ok')",
         )
         .current_dir(root)
         .output()

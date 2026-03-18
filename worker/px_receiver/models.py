@@ -43,6 +43,24 @@ class LogLevel(StrEnum):
     ERROR = "error"
 
 
+class LargeFormatJobStatus(StrEnum):
+    WAITING = "waiting"
+    NEEDS_REVIEW = "needs_review"
+    BATCHED = "batched"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class LargeFormatBatchStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    APPROVED = "approved"
+    PRINTING = "printing"
+    SENT = "sent"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class AssetKind(StrEnum):
     IMAGE = "image"
     PDF = "pdf"
@@ -76,6 +94,26 @@ class WorkerSettings:
     photo_print_hot_folder_path: str = "//PICSERVER/C8Spool"
     photo_gift_hot_folder_path: str = "~/HotFolders/Sublimation"
     large_format_hot_folder_path: str = "~/HotFolders/Large Format"
+    large_format_photozone_input_folder_path: str = "~/HotFolders/Photo Zone Large Format Hot Folder"
+    large_format_postsnap_input_folder_path: str = "~/HotFolders/Postsnap Large Format Hot Folder"
+    large_format_output_folder_path: str = "~/HotFolders/Large Format/Output"
+    large_format_batching_interval_minutes: int = 10
+    large_format_roll_width_in: float = 36.0
+    large_format_gap_mm: float = 8.0
+    large_format_leader_mm: float = 50.0
+    large_format_trailer_mm: float = 50.0
+    large_format_left_margin_mm: float = 5.0
+    large_format_max_batch_length_mm: float = 1750.0
+    large_format_auto_send: bool = False
+    large_format_direct_print: bool = False
+    large_format_printer_name: str = ""
+    large_format_auto_approve_enabled: bool = True
+    large_format_auto_approve_max_waste_percent: float = 20.0
+    large_format_auto_border_if_light_edge: bool = True
+    large_format_edge_border_mm: float = 1.0
+    large_format_print_filename_captions: bool = True
+    large_format_filename_caption_height_mm: float = 6.0
+    large_format_filename_caption_font_size_pt: float = 9.0
     packing_slip_printer_name: str = ""
     shipping_label_printer_name: str = ""
     use_mock_backend: bool = True
@@ -300,6 +338,163 @@ class LogRecord:
 
 
 @dataclass(slots=True)
+class LargeFormatPlacement:
+    job_id: str
+    filename: str
+    x_mm: float
+    y_mm: float
+    placed_width_mm: float
+    placed_height_mm: float
+    rotated: bool = False
+    sort_order: int = 0
+    add_black_border: bool = False
+
+    def to_payload(self) -> dict[str, Any]:
+        return to_camel_dict(self)
+
+
+@dataclass(slots=True)
+class LargeFormatJob:
+    id: str
+    filename: str
+    original_path: str
+    width_in: float | None
+    height_in: float | None
+    media_type: str = "lustre"
+    quantity: int = 1
+    source: str = "unknown"
+    status: LargeFormatJobStatus = LargeFormatJobStatus.WAITING
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+    parse_source: str | None = None
+    notes: str | None = None
+    needs_border: bool = False
+    batch_id: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return to_camel_dict(self)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "LargeFormatJob":
+        return cls(
+            id=str(payload.get("id", "")),
+            filename=str(payload.get("filename", "")),
+            original_path=str(payload.get("originalPath", payload.get("original_path", ""))),
+            width_in=float(payload["widthIn"]) if payload.get("widthIn") is not None else None,
+            height_in=float(payload["heightIn"]) if payload.get("heightIn") is not None else None,
+            media_type=str(payload.get("mediaType", payload.get("media_type", "lustre")) or "lustre"),
+            quantity=int(payload.get("quantity", 1) or 1),
+            source=str(payload.get("source", "unknown") or "unknown"),
+            status=LargeFormatJobStatus(payload.get("status", LargeFormatJobStatus.WAITING.value)),
+            created_at=payload.get("createdAt", payload.get("created_at", now_iso())),
+            updated_at=payload.get("updatedAt", payload.get("updated_at", now_iso())),
+            parse_source=payload.get("parseSource", payload.get("parse_source")),
+            notes=payload.get("notes"),
+            needs_border=bool(payload.get("needsBorder", payload.get("needs_border", False))),
+            batch_id=payload.get("batchId", payload.get("batch_id")),
+        )
+
+
+@dataclass(slots=True)
+class LargeFormatBatch:
+    id: str
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+    status: LargeFormatBatchStatus = LargeFormatBatchStatus.PENDING
+    media_type: str = "lustre"
+    roll_width_in: float = 36.0
+    gap_mm: float = 8.0
+    leader_mm: float = 50.0
+    trailer_mm: float = 50.0
+    caption_height_mm: float = 0.0
+    used_length_mm: float = 0.0
+    waste_percent: float = 0.0
+    output_pdf_path: str | None = None
+    hot_folder_sent_at: str | None = None
+    notes: str | None = None
+    placements: list[LargeFormatPlacement] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, Any]:
+        return to_camel_dict(self)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "LargeFormatBatch":
+        return cls(
+            id=str(payload.get("id", "")),
+            created_at=payload.get("createdAt", payload.get("created_at", now_iso())),
+            updated_at=payload.get("updatedAt", payload.get("updated_at", now_iso())),
+            status=LargeFormatBatchStatus(payload.get("status", LargeFormatBatchStatus.PENDING.value)),
+            media_type=str(payload.get("mediaType", payload.get("media_type", "lustre")) or "lustre"),
+            roll_width_in=float(payload.get("rollWidthIn", payload.get("roll_width_in", 36.0)) or 36.0),
+            gap_mm=float(payload.get("gapMm", payload.get("gap_mm", 8.0)) or 8.0),
+            leader_mm=float(payload.get("leaderMm", payload.get("leader_mm", 50.0)) or 50.0),
+            trailer_mm=float(payload.get("trailerMm", payload.get("trailer_mm", 50.0)) or 50.0),
+            caption_height_mm=float(payload.get("captionHeightMm", payload.get("caption_height_mm", 0.0)) or 0.0),
+            used_length_mm=float(payload.get("usedLengthMm", payload.get("used_length_mm", 0.0)) or 0.0),
+            waste_percent=float(payload.get("wastePercent", payload.get("waste_percent", 0.0)) or 0.0),
+            output_pdf_path=payload.get("outputPdfPath", payload.get("output_pdf_path")),
+            hot_folder_sent_at=payload.get("hotFolderSentAt", payload.get("hot_folder_sent_at")),
+            notes=payload.get("notes"),
+            placements=[
+                LargeFormatPlacement(
+                    job_id=str(item.get("jobId", item.get("job_id", ""))),
+                    filename=str(item.get("filename", "")),
+                    x_mm=float(item.get("xMm", item.get("x_mm", 0.0)) or 0.0),
+                    y_mm=float(item.get("yMm", item.get("y_mm", 0.0)) or 0.0),
+                    placed_width_mm=float(item.get("placedWidthMm", item.get("placed_width_mm", 0.0)) or 0.0),
+                    placed_height_mm=float(item.get("placedHeightMm", item.get("placed_height_mm", 0.0)) or 0.0),
+                    rotated=bool(item.get("rotated", False)),
+                    sort_order=int(item.get("sortOrder", item.get("sort_order", 0)) or 0),
+                    add_black_border=bool(item.get("addBlackBorder", item.get("add_black_border", False))),
+                )
+                for item in payload.get("placements", [])
+            ],
+        )
+
+
+@dataclass(slots=True)
+class LargeFormatActivity:
+    event: str
+    message: str
+    level: LogLevel = LogLevel.INFO
+    id: str = field(default_factory=lambda: str(uuid4()))
+    timestamp: str = field(default_factory=now_iso)
+
+    def to_payload(self) -> dict[str, Any]:
+        return to_camel_dict(self)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "LargeFormatActivity":
+        return cls(
+            id=str(payload.get("id", str(uuid4()))),
+            timestamp=payload.get("timestamp", now_iso()),
+            event=str(payload.get("event", "event")),
+            message=str(payload.get("message", "")),
+            level=LogLevel(payload.get("level", LogLevel.INFO.value)),
+        )
+
+
+@dataclass(slots=True)
+class LargeFormatState:
+    jobs: list[LargeFormatJob] = field(default_factory=list)
+    batches: list[LargeFormatBatch] = field(default_factory=list)
+    activity: list[LargeFormatActivity] = field(default_factory=list)
+    active_batch_id: str | None = None
+    last_scan_at: str | None = None
+    last_processed_at: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "jobs": [job.to_payload() for job in self.jobs],
+            "batches": [batch.to_payload() for batch in self.batches],
+            "activity": [entry.to_payload() for entry in self.activity],
+            "activeBatchId": self.active_batch_id,
+            "lastScanAt": self.last_scan_at,
+            "lastProcessedAt": self.last_processed_at,
+        }
+
+
+@dataclass(slots=True)
 class WorkerSnapshot:
     health: HealthState
     polling_paused: bool
@@ -311,6 +506,7 @@ class WorkerSnapshot:
     scanner: ScannerState
     jobs: list[JobRecord]
     logs: list[LogRecord]
+    large_format: LargeFormatState = field(default_factory=LargeFormatState)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -324,6 +520,7 @@ class WorkerSnapshot:
             "scanner": self.scanner.to_payload(),
             "jobs": [job.to_payload() for job in self.jobs],
             "logs": [log.to_payload() for log in self.logs],
+            "largeFormat": self.large_format.to_payload(),
         }
 
 
