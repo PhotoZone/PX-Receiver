@@ -1885,8 +1885,8 @@ class WorkerRuntime:
 
     def run(self) -> None:
         self.start_command_listener()
-        self.register()
         self.scanner.start()
+        self.register()
 
         while not self.stop_event.is_set():
             self.process_pending_commands()
