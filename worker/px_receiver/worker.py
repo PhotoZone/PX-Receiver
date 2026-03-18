@@ -675,9 +675,28 @@ class WorkerRuntime:
             return "wink"
         if len(normalized) == 8 and normalized.startswith("4") and normalized.isdigit():
             return "photozone"
-        if len(normalized) == 12 and normalized.isdigit():
+        if self.normalize_postsnap_order_number(normalized):
             return "postsnap"
         return "unknown"
+
+    def normalize_postsnap_order_number(self, code: str) -> str | None:
+        normalized = str(code or "").strip()
+        if len(normalized) < 12:
+            return None
+
+        base = normalized[:12]
+        if not base.isdigit():
+            return None
+
+        suffix = normalized[12:].strip()
+        if not suffix:
+            return base
+
+        compact_suffix = suffix.replace(" ", "")
+        if compact_suffix.startswith("-") and len(compact_suffix) > 1 and compact_suffix[1:].isalnum():
+            return base
+
+        return None
 
     def scan_action_key(self, reference: str) -> str:
         return str(reference or "").strip().upper()
@@ -791,17 +810,18 @@ class WorkerRuntime:
         self.emit_scan(scan)
 
     def handle_postsnap_scan(self, code: str, source: str) -> None:
-        if not self.can_process_scan_action(code):
+        order_number = self.normalize_postsnap_order_number(code) or code
+        if not self.can_process_scan_action(order_number):
             self.emit_blocked_scan(
                 code,
                 source,
-                f"Scan ignored for {code}: maximum of {MAX_SCAN_ACTIONS_PER_SESSION} actions reached this session.",
-                order_id=code,
+                f"Scan ignored for {order_number}: maximum of {MAX_SCAN_ACTIONS_PER_SESSION} actions reached this session.",
+                order_id=order_number,
             )
             return
-        self.emit_log(LogLevel.INFO, f"Barcode scanned and resolved via ShipStation: {code}", "scanner")
-        if self.print_shipping_label_for_order_number(code, source=source):
-            self.record_scan_action(code)
+        self.emit_log(LogLevel.INFO, f"Barcode scanned and resolved via ShipStation: {code} -> {order_number}", "scanner")
+        if self.print_shipping_label_for_order_number(order_number, source=source):
+            self.record_scan_action(order_number)
 
     def register(self) -> None:
         try:

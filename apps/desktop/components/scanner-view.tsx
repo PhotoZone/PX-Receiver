@@ -25,6 +25,7 @@ type ScanAppearance = {
 
 function getScanAppearance(scan: ScanRecord): ScanAppearance {
   const code = scan.code.trim();
+  const postSnapBase = code.slice(0, 12);
 
   if (/^4\d{7}$/.test(code)) {
     return {
@@ -36,7 +37,7 @@ function getScanAppearance(scan: ScanRecord): ScanAppearance {
     };
   }
 
-  if (/^\d{12}$/.test(code)) {
+  if (/^\d{12}$/.test(postSnapBase) && (!code.slice(12).trim() || /^-\s*[A-Z0-9]+$/i.test(code.slice(12).trim()))) {
     return {
       key: "postsnap",
       label: "PostSnap",

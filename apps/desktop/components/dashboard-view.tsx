@@ -151,6 +151,7 @@ function CompactJobRow({ job }: { job: JobRecord }) {
 
 function getScanTone(scan: ScanRecord) {
   const code = scan.code.trim();
+  const postSnapBase = code.slice(0, 12);
 
   if (/^4\d{7}$/.test(code)) {
     return {
@@ -159,7 +160,7 @@ function getScanTone(scan: ScanRecord) {
     };
   }
 
-  if (/^\d{12}$/.test(code)) {
+  if (/^\d{12}$/.test(postSnapBase) && (!code.slice(12).trim() || /^-\s*[A-Z0-9]+$/i.test(code.slice(12).trim()))) {
     return {
       label: "PostSnap",
       className: "border-rose-500/20 bg-rose-500/10 text-rose-50",
