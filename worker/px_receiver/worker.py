@@ -32,6 +32,9 @@ from px_receiver.services.slack import notify_order_failure
 from px_receiver.state import LocalState
 
 MAX_SCAN_ACTIONS_PER_SESSION = 1
+A1_LONG_EDGE_IN = 33.1
+A1_SHORT_EDGE_IN = 23.4
+A_SIZE_TOLERANCE_IN = 0.2
 
 
 class WorkerRuntime:
@@ -308,6 +311,23 @@ class WorkerRuntime:
             )
             self.emit_snapshot()
 
+    def is_a1_large_format_job(self, job: LargeFormatJob) -> bool:
+        if not job.width_in or not job.height_in:
+            return False
+
+        long_edge = max(job.width_in, job.height_in)
+        short_edge = min(job.width_in, job.height_in)
+        return (
+            abs(long_edge - A1_LONG_EDGE_IN) <= A_SIZE_TOLERANCE_IN
+            and abs(short_edge - A1_SHORT_EDGE_IN) <= A_SIZE_TOLERANCE_IN
+        )
+
+    def select_large_format_batch_jobs(self, waiting_jobs: list[LargeFormatJob]) -> list[LargeFormatJob]:
+        a1_jobs = [job for job in waiting_jobs if self.is_a1_large_format_job(job)]
+        if a1_jobs:
+            return a1_jobs
+        return waiting_jobs
+
     def process_large_format_batches(self) -> None:
         waiting_jobs = [job for job in self.snapshot.large_format.jobs if job.status == LargeFormatJobStatus.WAITING]
         if not waiting_jobs:
@@ -315,10 +335,12 @@ class WorkerRuntime:
             self.emit_snapshot()
             return
 
+        selected_jobs = self.select_large_format_batch_jobs(waiting_jobs)
+
         try:
-            batch = create_layout_batch(self.settings, waiting_jobs)
+            batch = create_layout_batch(self.settings, selected_jobs)
         except RuntimeError as exc:
-            blocked_job = waiting_jobs[0]
+            blocked_job = selected_jobs[0]
             updated_job = replace(
                 blocked_job,
                 status=LargeFormatJobStatus.NEEDS_REVIEW,
@@ -338,7 +360,7 @@ class WorkerRuntime:
         self.remember_large_format_batch(batch)
 
         included_job_ids = {placement.job_id for placement in batch.placements}
-        for job in waiting_jobs:
+        for job in selected_jobs:
             if job.id not in included_job_ids:
                 continue
             updated_job = replace(job, status=LargeFormatJobStatus.BATCHED, updated_at=now_iso(), batch_id=batch.id)
@@ -347,6 +369,8 @@ class WorkerRuntime:
         self.snapshot.large_format.last_processed_at = now_iso()
         deferred_count = max(0, len(waiting_jobs) - len(included_job_ids))
         message = f"Created large-format batch {batch.id[-8:]} from {len(included_job_ids)} job(s). Estimated length {batch.used_length_mm:.0f} mm."
+        if len(selected_jobs) != len(waiting_jobs) and all(self.is_a1_large_format_job(job) for job in selected_jobs):
+            message += " A1 jobs were batched separately for cleaner finishing."
         if deferred_count:
             message += f" Left {deferred_count} job(s) waiting to stay within the {self.settings.large_format_max_batch_length_mm:.0f} mm max length."
         self.emit_large_format_activity(
