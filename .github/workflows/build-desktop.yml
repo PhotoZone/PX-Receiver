@@ -149,19 +149,66 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          UPDATER_JSON="$(find src-tauri/target/release/bundle -type f -name 'latest.json' | head -n 1)"
+          PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           if [ "${{ matrix.label }}" = "macOS Apple Silicon" ]; then
             cp "src-tauri/target/release/bundle/dmg/"*.dmg "release-assets/PX-Receiver-macOS-AppleSilicon.dmg"
-            cp "$UPDATER_JSON" "release-assets/latest-macos-apple-silicon.json"
           elif [ "${{ matrix.label }}" = "macOS Intel" ]; then
             cp "src-tauri/target/release/bundle/dmg/"*.dmg "release-assets/PX-Receiver-macOS-Intel.dmg"
-            cp "$UPDATER_JSON" "release-assets/latest-macos-intel.json"
           elif [ "${{ runner.os }}" = "Windows" ]; then
             cp src-tauri/target/release/bundle/msi/*.msi release-assets/PX-Receiver-Windows-x64.msi
             cp src-tauri/target/release/bundle/nsis/*.exe release-assets/PX-Receiver-Windows-x64-setup.exe
-            cp "$UPDATER_JSON" "release-assets/latest-windows-x64.json"
           fi
           find src-tauri/target/release/bundle -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sig" \) -exec cp {} release-assets/ \;
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("release-assets")
+          version = "${{ steps.release_meta.outputs.app_version }}"
+          tag = "${{ steps.release_meta.outputs.tag }}"
+          notes = "${{ steps.release_meta.outputs.name }}"
+          pub_date = os.environ["PUB_DATE"]
+          matrix_label = "${{ matrix.label }}"
+
+          def build_manifest(asset_name: str, sig_name: str, platform_key: str, output_name: str) -> None:
+              asset_path = root / asset_name
+              sig_path = root / sig_name
+              if not asset_path.exists() or not sig_path.exists():
+                  raise SystemExit(f"Missing updater artifacts for {output_name}: {asset_name}, {sig_name}")
+
+              manifest = {
+                  "version": version,
+                  "notes": notes,
+                  "pub_date": pub_date,
+                  "platforms": {
+                      platform_key: {
+                          "signature": sig_path.read_text(encoding="utf-8").strip(),
+                          "url": f"https://github.com/PhotoZone/PX-Receiver/releases/download/{tag}/{asset_name}",
+                      }
+                  },
+              }
+              (root / output_name).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+          if matrix_label == "macOS Apple Silicon":
+              asset = next(root.glob("*.app.tar.gz"), None)
+              sig = next(root.glob("*.app.tar.gz.sig"), None)
+              if asset and sig:
+                  build_manifest(asset.name, sig.name, "darwin-aarch64", "latest-macos-apple-silicon.json")
+          elif matrix_label == "macOS Intel":
+              asset = next(root.glob("*.app.tar.gz"), None)
+              sig = next(root.glob("*.app.tar.gz.sig"), None)
+              if asset and sig:
+                  build_manifest(asset.name, sig.name, "darwin-x86_64", "latest-macos-intel.json")
+          elif matrix_label == "Windows":
+              asset = next(root.glob("*.nsis.zip"), None) or next(root.glob("*.msi.zip"), None)
+              sig = None
+              if asset:
+                  sig = root / f"{asset.name}.sig"
+              if asset and sig and sig.exists():
+                  build_manifest(asset.name, sig.name, "windows-x86_64", "latest-windows-x64.json")
+          PY
 
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v6
