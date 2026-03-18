@@ -65,7 +65,7 @@ jobs:
             echo "name=Release ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            app_version="0.1.${GITHUB_RUN_NUMBER}"
+            app_version="0.3.${GITHUB_RUN_NUMBER}"
             echo "tag=v${app_version}" >> "$GITHUB_OUTPUT"
             echo "name=Release v${app_version}" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
