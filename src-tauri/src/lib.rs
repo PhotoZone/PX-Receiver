@@ -542,19 +542,27 @@ fn open_url_in_os_impl(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn latest_installer_url() -> &'static str {
+fn latest_installer_url() -> String {
     if cfg!(target_os = "windows") {
-        "https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-Windows-x64-setup.exe"
-    } else if cfg!(target_os = "macos") {
-        "https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-macOS.dmg"
-    } else {
-        "https://github.com/PhotoZone/PX-Receiver/releases"
+        return "https://github.com/PhotoZone/PX-Receiver/releases/latest/download/PX-Receiver-Windows-x64-setup.exe"
+            .to_string();
     }
+
+    if cfg!(target_os = "macos") {
+        let mac_asset = if cfg!(target_arch = "x86_64") {
+            "PX-Receiver-macOS-Intel.dmg"
+        } else {
+            "PX-Receiver-macOS-AppleSilicon.dmg"
+        };
+        return format!("https://github.com/PhotoZone/PX-Receiver/releases/latest/download/{mac_asset}");
+    }
+
+    "https://github.com/PhotoZone/PX-Receiver/releases".to_string()
 }
 
 #[tauri::command]
 fn download_latest_app_build() -> Result<(), String> {
-    open_url_in_os_impl(latest_installer_url())
+    open_url_in_os_impl(&latest_installer_url())
 }
 
 fn parse_semver_triplet(value: &str) -> Option<(u64, u64, u64)> {
