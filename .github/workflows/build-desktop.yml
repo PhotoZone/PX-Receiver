@@ -26,7 +26,7 @@ jobs:
               src-tauri/target/release/bundle/dmg/*.dmg
             release_files: |
               release-assets/PX-Receiver-macOS-AppleSilicon.dmg
-          - os: macos-13
+          - os: macos-15-intel
             label: macOS Intel
             python: "3.11"
             artifact_name: px-receiver-macos-intel
