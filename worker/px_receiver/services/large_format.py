@@ -17,6 +17,14 @@ MM_PER_INCH = 25.4
 POINTS_PER_INCH = 72
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 MAX_EXACT_LAYOUT_ITEMS = 12
+A_SERIES_SIZE_TOLERANCE_MM = 8.0
+A_SERIES_PANEL_WIDTH_MM = 841.0
+A_SERIES_PANEL_HEIGHT_MM = 594.0
+A_SERIES_SPECS_MM = {
+    "a1": (841.0, 594.0),
+    "a2": (594.0, 420.0),
+    "a3": (420.0, 297.0),
+}
 
 
 @dataclass(slots=True)
@@ -45,6 +53,25 @@ def mm_to_points(value: float) -> float:
 
 def round_mm(value: float) -> float:
     return round(value, 2)
+
+
+def classify_a_series_large_format_job(job: LargeFormatJob) -> str | None:
+    if not job.width_in or not job.height_in:
+        return None
+
+    width_mm = inches_to_mm(job.width_in)
+    height_mm = inches_to_mm(job.height_in)
+    long_edge = max(width_mm, height_mm)
+    short_edge = min(width_mm, height_mm)
+
+    for label, (spec_long_edge, spec_short_edge) in A_SERIES_SPECS_MM.items():
+        if (
+            abs(long_edge - spec_long_edge) <= A_SERIES_SIZE_TOLERANCE_MM
+            and abs(short_edge - spec_short_edge) <= A_SERIES_SIZE_TOLERANCE_MM
+        ):
+            return label
+
+    return None
 
 
 def large_format_photozone_input_path(settings: WorkerSettings) -> Path:
@@ -441,6 +468,117 @@ def _build_layout_attempt(
     return placements, used_length_mm, waste_percent
 
 
+def _build_a_series_panel_layout(
+    settings: WorkerSettings,
+    jobs: list[LargeFormatJob],
+    *,
+    printable_width_mm: float,
+    max_batch_length_mm: float,
+) -> tuple[str, list[LargeFormatPlacement], float, float]:
+    if printable_width_mm < A_SERIES_PANEL_WIDTH_MM:
+        raise RuntimeError("Configured roll width is too small for A-series panel layout.")
+
+    grouped_jobs: dict[str, list[LargeFormatJob]] = {"a1": [], "a2": [], "a3": []}
+    for job in jobs:
+        size = classify_a_series_large_format_job(job)
+        if size is None:
+            raise RuntimeError("A-series panel layout requires A1, A2, or A3 jobs only.")
+        grouped_jobs[size].append(job)
+
+    panel_origin_x = round_mm(
+        settings.large_format_left_margin_mm + max(0.0, (printable_width_mm - A_SERIES_PANEL_WIDTH_MM) / 2)
+    )
+    placements: list[LargeFormatPlacement] = []
+    total_area = 0.0
+    panel_count = 0
+    sort_order = 0
+
+    def append_panel(panel_jobs: list[LargeFormatJob], size: str, cursor_y: float) -> None:
+        nonlocal total_area, sort_order
+        if size == "a1":
+            slot_width_mm, slot_height_mm = A_SERIES_SPECS_MM["a1"]
+            slots = [(0.0, 0.0)]
+        elif size == "a2":
+            slot_width_mm, slot_height_mm = A_SERIES_SPECS_MM["a2"]
+            slots = [(0.0, 0.0), (420.0, 0.0)]
+        else:
+            slot_width_mm, slot_height_mm = A_SERIES_SPECS_MM["a3"]
+            slots = [(0.0, 0.0), (420.0, 0.0), (0.0, 297.0), (420.0, 297.0)]
+
+        for index, job in enumerate(panel_jobs):
+            offset_x, offset_y = slots[index]
+            width_mm = inches_to_mm(job.width_in or 0)
+            height_mm = inches_to_mm(job.height_in or 0)
+            rotated = abs(width_mm - slot_height_mm) <= A_SERIES_SIZE_TOLERANCE_MM and abs(height_mm - slot_width_mm) <= A_SERIES_SIZE_TOLERANCE_MM
+            placements.append(
+                LargeFormatPlacement(
+                    job_id=job.id,
+                    filename=job.filename,
+                    x_mm=round_mm(panel_origin_x + offset_x),
+                    y_mm=round_mm(cursor_y + offset_y),
+                    placed_width_mm=round_mm(slot_width_mm),
+                    placed_height_mm=round_mm(slot_height_mm),
+                    rotated=rotated,
+                    sort_order=sort_order,
+                    add_black_border=job.needs_border and settings.large_format_auto_border_if_light_edge,
+                )
+            )
+            total_area += slot_width_mm * slot_height_mm
+            sort_order += 1
+
+    panel_recipes = [
+        ("a1", 1),
+        ("a2", 2),
+        ("a3", 4),
+    ]
+    cursor_y = settings.large_format_leader_mm
+
+    for size, capacity in panel_recipes:
+        jobs_for_size = grouped_jobs[size]
+        for index in range(0, len(jobs_for_size), capacity):
+            panel_jobs = jobs_for_size[index:index + capacity]
+            projected_length_mm = settings.large_format_leader_mm
+            if panel_count:
+                projected_length_mm += panel_count * (A_SERIES_PANEL_HEIGHT_MM + settings.large_format_gap_mm)
+            projected_length_mm += A_SERIES_PANEL_HEIGHT_MM + settings.large_format_trailer_mm
+            if projected_length_mm > max_batch_length_mm:
+                if placements:
+                    used_length_mm = round_mm(
+                        settings.large_format_leader_mm
+                        + panel_count * A_SERIES_PANEL_HEIGHT_MM
+                        + max(0, panel_count - 1) * settings.large_format_gap_mm
+                        + settings.large_format_trailer_mm
+                    )
+                    roll_width_mm = inches_to_mm(settings.large_format_roll_width_in)
+                    waste_percent = round(
+                        0 if used_length_mm <= 0 else ((roll_width_mm * used_length_mm - total_area) / (roll_width_mm * used_length_mm)) * 100,
+                        1,
+                    )
+                    return "a-series-panels", placements, used_length_mm, waste_percent
+                raise RuntimeError(
+                    f"{panel_jobs[0].filename} exceeds the maximum batch length of {round_mm(max_batch_length_mm)} mm and needs manual review."
+                )
+
+            if panel_count:
+                cursor_y += A_SERIES_PANEL_HEIGHT_MM + settings.large_format_gap_mm
+
+            append_panel(panel_jobs, size, cursor_y)
+            panel_count += 1
+
+    used_length_mm = round_mm(
+        settings.large_format_leader_mm
+        + panel_count * A_SERIES_PANEL_HEIGHT_MM
+        + max(0, panel_count - 1) * settings.large_format_gap_mm
+        + settings.large_format_trailer_mm
+    )
+    roll_width_mm = inches_to_mm(settings.large_format_roll_width_in)
+    waste_percent = round(
+        0 if used_length_mm <= 0 else ((roll_width_mm * used_length_mm - total_area) / (roll_width_mm * used_length_mm)) * 100,
+        1,
+    )
+    return "a-series-panels", placements, used_length_mm, waste_percent
+
+
 def create_layout_batch(settings: WorkerSettings, jobs: list[LargeFormatJob]) -> LargeFormatBatch:
     roll_width_mm = inches_to_mm(settings.large_format_roll_width_in)
     printable_width_mm = max(1.0, roll_width_mm - settings.large_format_left_margin_mm)
@@ -453,7 +591,14 @@ def create_layout_batch(settings: WorkerSettings, jobs: list[LargeFormatJob]) ->
     if not items:
         raise RuntimeError("No large-format jobs fit within the current batch constraints.")
 
-    if len(items) <= MAX_EXACT_LAYOUT_ITEMS:
+    if all(classify_a_series_large_format_job(job) in {"a1", "a2", "a3"} for job in items):
+        strategy_name, placements, used_length_mm, waste_percent = _build_a_series_panel_layout(
+            settings,
+            items,
+            printable_width_mm=printable_width_mm,
+            max_batch_length_mm=max_batch_length_mm,
+        )
+    elif len(items) <= MAX_EXACT_LAYOUT_ITEMS:
         strategy_name, placements, used_length_mm, waste_percent = _build_layout_exact(
             settings,
             items,
