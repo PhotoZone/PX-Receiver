@@ -152,8 +152,16 @@ jobs:
           export PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           if [ "${{ matrix.label }}" = "macOS Apple Silicon" ]; then
             cp "src-tauri/target/release/bundle/dmg/"*.dmg "release-assets/PX-Receiver-macOS-AppleSilicon.dmg"
+            updater_archive="$(find src-tauri/target/release/bundle -type f -name '*.app.tar.gz' | head -n 1)"
+            updater_sig="${updater_archive}.sig"
+            cp "$updater_archive" "release-assets/PX-Receiver-macOS-AppleSilicon.app.tar.gz"
+            cp "$updater_sig" "release-assets/PX-Receiver-macOS-AppleSilicon.app.tar.gz.sig"
           elif [ "${{ matrix.label }}" = "macOS Intel" ]; then
             cp "src-tauri/target/release/bundle/dmg/"*.dmg "release-assets/PX-Receiver-macOS-Intel.dmg"
+            updater_archive="$(find src-tauri/target/release/bundle -type f -name '*.app.tar.gz' | head -n 1)"
+            updater_sig="${updater_archive}.sig"
+            cp "$updater_archive" "release-assets/PX-Receiver-macOS-Intel.app.tar.gz"
+            cp "$updater_sig" "release-assets/PX-Receiver-macOS-Intel.app.tar.gz.sig"
           elif [ "${{ runner.os }}" = "Windows" ]; then
             cp src-tauri/target/release/bundle/msi/*.msi release-assets/PX-Receiver-Windows-x64.msi
             cp src-tauri/target/release/bundle/nsis/*.exe release-assets/PX-Receiver-Windows-x64-setup.exe
@@ -192,13 +200,13 @@ jobs:
               (root / output_name).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
           if matrix_label == "macOS Apple Silicon":
-              asset = next(root.glob("*.app.tar.gz"), None)
-              sig = next(root.glob("*.app.tar.gz.sig"), None)
+              asset = root / "PX-Receiver-macOS-AppleSilicon.app.tar.gz"
+              sig = root / "PX-Receiver-macOS-AppleSilicon.app.tar.gz.sig"
               if asset and sig:
                   build_manifest(asset.name, sig.name, "darwin-aarch64", "latest-macos-apple-silicon.json")
           elif matrix_label == "macOS Intel":
-              asset = next(root.glob("*.app.tar.gz"), None)
-              sig = next(root.glob("*.app.tar.gz.sig"), None)
+              asset = root / "PX-Receiver-macOS-Intel.app.tar.gz"
+              sig = root / "PX-Receiver-macOS-Intel.app.tar.gz.sig"
               if asset and sig:
                   build_manifest(asset.name, sig.name, "darwin-x86_64", "latest-macos-intel.json")
           elif matrix_label == "Windows":
