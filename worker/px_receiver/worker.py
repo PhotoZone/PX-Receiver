@@ -257,24 +257,55 @@ class WorkerRuntime:
 
         existing_paths = {item.original_path for item in self.snapshot.large_format.jobs}
         discovered = 0
+        skipped_existing = 0
+        file_count = 0
+        imported_waiting = 0
+        imported_review = 0
+        scanned_labels = ", ".join(f"{source}={path}" for source, path in input_dirs.items())
+        self.emit_log(
+            LogLevel.INFO,
+            f"Scanning large-format input folders: {scanned_labels}",
+            "large-format",
+        )
         for source, input_dir in input_dirs.items():
             for entry in sorted(input_dir.iterdir(), key=lambda item: item.name.lower()):
                 if not entry.is_file():
                     continue
+                file_count += 1
                 if str(entry) in existing_paths:
+                    skipped_existing += 1
                     continue
                 job = build_large_format_job(entry, source)
                 self.remember_large_format_job(job)
                 discovered += 1
+                if job.status == LargeFormatJobStatus.WAITING:
+                    imported_waiting += 1
+                    self.emit_log(
+                        LogLevel.INFO,
+                        f"Imported large-format file {entry.name} from {source} as waiting.",
+                        "large-format",
+                    )
+                else:
+                    imported_review += 1
+                    self.emit_log(
+                        LogLevel.WARNING,
+                        f"Imported large-format file {entry.name} from {source} as needs review: {job.notes or 'Unknown validation issue.'}",
+                        "large-format",
+                    )
 
         self.snapshot.large_format.last_scan_at = now_iso()
         self.local_state.save(self.paths["state"])
         if discovered:
             self.emit_large_format_activity(
                 "scan.completed",
-                f"Scanned Photo Zone and PostSnap large-format hot folders and added {discovered} new job(s).",
+                f"Scanned Photo Zone and PostSnap large-format hot folders and added {discovered} new job(s) ({imported_waiting} waiting, {imported_review} needs review, {skipped_existing} already known).",
             )
         else:
+            self.emit_log(
+                LogLevel.INFO,
+                f"Large-format scan found {file_count} file(s); added 0 new jobs and skipped {skipped_existing} already-known path(s).",
+                "large-format",
+            )
             self.emit_snapshot()
 
     def process_large_format_batches(self) -> None:
