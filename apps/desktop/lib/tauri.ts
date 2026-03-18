@@ -257,7 +257,10 @@ export async function checkForAppUpdate() {
     return null as AppUpdateStatus | null;
   }
 
-  if (typeof window !== "undefined" && window.location.protocol === "http:") {
+  const isLocalDevFrontend = typeof window !== "undefined"
+    && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+  if (isLocalDevFrontend) {
     return {
       currentVersion: defaultSnapshot.settings.machineAuthToken ? "unknown" : "dev",
       latestVersion: null,
