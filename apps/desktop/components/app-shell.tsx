@@ -273,7 +273,7 @@ export function AppShell({ children }: Props) {
                   className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-500"
                 >
                   <Download className="h-4 w-4" />
-                  Download update
+                  Install Update
                 </button>
                 <button
                   type="button"

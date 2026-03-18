@@ -378,7 +378,7 @@ export function SettingsView() {
           className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${isCheckingForUpdates ? "animate-spin" : ""}`} />
-          {appUpdate?.isUpdateAvailable ? "Download update" : "Check for updates"}
+          {appUpdate?.isUpdateAvailable ? "Install update" : "Check for updates"}
         </button>
         <button
           type="submit"

@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,5 +40,13 @@
     "externalBin": [
       "binaries/px-worker"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/PhotoZone/PX-Receiver/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIyMzAzQzYyRDE4RTk4NTkKUldSWm1JN1JZand3c2gzcUU3U3RMcG84cytETHhxUW83bjBEekhNQ1U5TjR0SFRPTFNaMnh1YlAK"
+    }
   }
 }

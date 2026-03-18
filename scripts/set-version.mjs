@@ -14,7 +14,25 @@ function updateJson(filePath) {
   const absolutePath = path.join(root, filePath);
   const payload = JSON.parse(fs.readFileSync(absolutePath, "utf8"));
   payload.version = nextVersion;
+  if (filePath === "src-tauri/tauri.conf.json") {
+    const updaterConfig = payload.plugins?.updater;
+    if (updaterConfig) {
+      updaterConfig.endpoints = [resolveUpdaterEndpoint()];
+    }
+  }
   fs.writeFileSync(absolutePath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function resolveUpdaterEndpoint() {
+  let assetName = "latest.json";
+
+  if (process.platform === "darwin") {
+    assetName = process.arch === "x64" ? "latest-macos-intel.json" : "latest-macos-apple-silicon.json";
+  } else if (process.platform === "win32") {
+    assetName = "latest-windows-x64.json";
+  }
+
+  return `https://github.com/PhotoZone/PX-Receiver/releases/latest/download/${assetName}`;
 }
 
 function updateCargoToml(filePath) {

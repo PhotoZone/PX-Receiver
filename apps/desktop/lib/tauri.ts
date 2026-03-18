@@ -7,6 +7,13 @@ const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in 
 const localAssetPreviewCache = new Map<string, string>();
 const authenticatedAssetPreviewCache = new Map<string, string>();
 const pxSearchStatusKey = "px:lastSuccessfulSearch";
+let pendingAppUpdate: {
+  currentVersion: string;
+  version: string;
+  body?: string | null;
+  rawJson?: Record<string, unknown>;
+  downloadAndInstall: () => Promise<void>;
+} | null = null;
 
 async function resolveCore() {
   return import("@tauri-apps/api/core");
@@ -18,6 +25,14 @@ async function resolveEvent() {
 
 async function resolvePath() {
   return import("@tauri-apps/api/path");
+}
+
+async function resolveApp() {
+  return import("@tauri-apps/api/app");
+}
+
+async function resolveUpdater() {
+  return import("@tauri-apps/plugin-updater");
 }
 
 export async function getSnapshot(): Promise<WorkerSnapshot> {
@@ -214,8 +229,17 @@ export async function downloadLatestAppBuild() {
     return;
   }
 
-  const { invoke } = await resolveCore();
-  await invoke("download_latest_app_build");
+  if (!pendingAppUpdate) {
+    await checkForAppUpdate();
+  }
+
+  if (!pendingAppUpdate) {
+    throw new Error("Latest version already installed.");
+  }
+
+  const update = pendingAppUpdate;
+  pendingAppUpdate = null;
+  await update.downloadAndInstall();
 }
 
 export async function checkForAppUpdate() {
@@ -223,8 +247,48 @@ export async function checkForAppUpdate() {
     return null as AppUpdateStatus | null;
   }
 
-  const { invoke } = await resolveCore();
-  return invoke<AppUpdateStatus>("check_for_app_update");
+  if (typeof window !== "undefined" && window.location.protocol === "http:") {
+    return {
+      currentVersion: defaultSnapshot.settings.machineAuthToken ? "unknown" : "dev",
+      latestVersion: null,
+      isUpdateAvailable: false,
+      downloadUrl: "",
+      releaseUrl: "https://github.com/PhotoZone/PX-Receiver/releases",
+      message: "Update checks are disabled in local dev builds.",
+      checkedAt: new Date().toISOString(),
+    } satisfies AppUpdateStatus;
+  }
+
+  const [{ getVersion }, { check }] = await Promise.all([resolveApp(), resolveUpdater()]);
+  const currentVersion = await getVersion();
+  const update = await check();
+  const checkedAt = new Date().toISOString();
+  const releaseUrl = "https://github.com/PhotoZone/PX-Receiver/releases";
+
+  if (!update) {
+    pendingAppUpdate = null;
+    return {
+      currentVersion,
+      latestVersion: currentVersion,
+      isUpdateAvailable: false,
+      downloadUrl: "",
+      releaseUrl,
+      message: `Latest version already installed (${currentVersion}).`,
+      checkedAt,
+    } satisfies AppUpdateStatus;
+  }
+
+  pendingAppUpdate = update;
+
+  return {
+    currentVersion,
+    latestVersion: update.version,
+    isUpdateAvailable: true,
+    downloadUrl: "",
+    releaseUrl,
+    message: `Version ${update.version} is available. You have ${currentVersion} installed.`,
+    checkedAt,
+  } satisfies AppUpdateStatus;
 }
 
 export async function openPathInOs(path: string) {

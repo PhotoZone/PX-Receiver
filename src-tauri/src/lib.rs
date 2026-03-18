@@ -1101,6 +1101,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             build_tray(app.handle())?;
             let runtime = launch_runtime(app.handle())
