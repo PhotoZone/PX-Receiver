@@ -152,7 +152,7 @@ function CompactJobRow({ job }: { job: JobRecord }) {
 function getScanTone(scan: ScanRecord) {
   const code = scan.code.trim();
 
-  if (/^4\d{6}$/.test(code)) {
+  if (/^4\d{7}$/.test(code)) {
     return {
       label: "Photo Zone",
       className: "border-blue-500/20 bg-blue-500/10 text-blue-50",

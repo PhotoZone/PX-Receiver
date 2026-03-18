@@ -26,7 +26,7 @@ type ScanAppearance = {
 function getScanAppearance(scan: ScanRecord): ScanAppearance {
   const code = scan.code.trim();
 
-  if (/^4\d{6}$/.test(code)) {
+  if (/^4\d{7}$/.test(code)) {
     return {
       key: "photozone",
       label: "Photo Zone",

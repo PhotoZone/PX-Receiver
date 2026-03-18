@@ -632,7 +632,7 @@ class WorkerRuntime:
             return "unknown"
         if normalized.casefold().startswith("w"):
             return "wink"
-        if len(normalized) == 7 and normalized.startswith("4") and normalized.isdigit():
+        if len(normalized) == 8 and normalized.startswith("4") and normalized.isdigit():
             return "photozone"
         if len(normalized) == 12 and normalized.isdigit():
             return "postsnap"
