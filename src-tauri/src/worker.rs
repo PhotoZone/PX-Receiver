@@ -188,7 +188,7 @@ impl Default for WorkerSettings {
             large_format_leader_mm: 50.0,
             large_format_trailer_mm: 50.0,
             large_format_left_margin_mm: 5.0,
-            large_format_max_batch_length_mm: 1750.0,
+            large_format_max_batch_length_mm: 1000.0,
             large_format_auto_send: false,
             large_format_direct_print: false,
             large_format_printer_name: String::new(),

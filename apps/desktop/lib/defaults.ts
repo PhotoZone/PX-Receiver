@@ -31,7 +31,7 @@ export const defaultSnapshot: WorkerSnapshot = {
     largeFormatLeaderMm: 50,
     largeFormatTrailerMm: 50,
     largeFormatLeftMarginMm: 5,
-    largeFormatMaxBatchLengthMm: 1750,
+    largeFormatMaxBatchLengthMm: 1000,
     largeFormatAutoSend: false,
     largeFormatDirectPrint: false,
     largeFormatPrinterName: "",

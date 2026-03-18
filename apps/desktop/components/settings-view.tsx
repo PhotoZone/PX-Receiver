@@ -768,7 +768,7 @@ export function SettingsView() {
         <label className="space-y-2">
           <span className="text-sm font-medium text-slate-200">Max batch length (mm)</span>
           <input className="min-w-0 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" type="number" step="1" min="1" value={formState.largeFormatMaxBatchLengthMm} onChange={(event) => updateField("largeFormatMaxBatchLengthMm", Number(event.target.value))} />
-          <p className="text-xs leading-5 text-slate-500">Default is 1750 mm, roughly capped around two A1 pieces plus spacing, to keep guillotine finishing manageable.</p>
+          <p className="text-xs leading-5 text-slate-500">Default is 1000 mm to keep batches short and easier to handle at the cutter.</p>
         </label>
 
         <PrinterField

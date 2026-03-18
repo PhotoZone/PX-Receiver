@@ -104,7 +104,7 @@ class WorkerSettings:
     large_format_leader_mm: float = 50.0
     large_format_trailer_mm: float = 50.0
     large_format_left_margin_mm: float = 5.0
-    large_format_max_batch_length_mm: float = 1750.0
+    large_format_max_batch_length_mm: float = 1000.0
     large_format_auto_send: bool = False
     large_format_direct_print: bool = False
     large_format_printer_name: str = ""
