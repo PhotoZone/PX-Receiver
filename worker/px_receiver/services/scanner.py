@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -43,7 +44,9 @@ SYSTEM_PORT_PREFIXES = (
 )
 
 
-class ScannerService:
+class WindowsSerialScannerListener:
+    """Existing Windows serial/COM scanner flow, intentionally kept unchanged."""
+
     def __init__(
         self,
         *,
@@ -161,3 +164,57 @@ class ScannerService:
         if str(getattr(port, "device", "") or "").upper().startswith("COM"):
             score += 2
         return score
+
+
+class ScannerService:
+    def __init__(
+        self,
+        *,
+        on_scan: ScanCallback,
+        on_status: StatusCallback,
+        on_log: LogCallback,
+        baudrate: int = 9600,
+    ) -> None:
+        self.on_scan = on_scan
+        self.on_status = on_status
+        self.on_log = on_log
+        self.baudrate = baudrate
+        self.delegate: WindowsSerialScannerListener | Any | None = None
+
+    def start(self) -> None:
+        if self.delegate is not None:
+            return
+
+        if sys.platform == "win32":
+            self.on_log(LogLevel.INFO, "Scanner platform selected: Windows COM-port listener", "scanner")
+            self.delegate = WindowsSerialScannerListener(
+                on_scan=self.on_scan,
+                on_status=self.on_status,
+                on_log=self.on_log,
+                baudrate=self.baudrate,
+            )
+        elif sys.platform == "darwin":
+            from px_receiver.services.scanner_mac import MacHIDScannerListener
+
+            self.on_log(LogLevel.INFO, "Scanner platform selected: macOS HID keyboard listener", "scanner")
+            self.delegate = MacHIDScannerListener(
+                on_scan=self.on_scan,
+                on_status=self.on_status,
+                on_log=self.on_log,
+            )
+        else:
+            self.on_status("unavailable", None)
+            self.on_log(
+                LogLevel.WARNING,
+                f"Scanner support is only available on Windows COM ports or macOS HID mode. Unsupported platform: {sys.platform}",
+                "scanner",
+            )
+            return
+
+        self.delegate.start()
+
+    def stop(self) -> None:
+        if self.delegate is None:
+            return
+        self.delegate.stop()
+        self.delegate = None
