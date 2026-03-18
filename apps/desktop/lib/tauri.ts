@@ -240,6 +240,7 @@ export async function downloadLatestAppBuild() {
   const update = pendingAppUpdate;
   pendingAppUpdate = null;
   await update.downloadAndInstall();
+  await relaunchApp();
 }
 
 export async function checkForAppUpdate() {
