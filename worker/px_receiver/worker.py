@@ -363,6 +363,55 @@ class WorkerRuntime:
             if self.settings.large_format_auto_send:
                 self.send_large_format_batch(batch.id)
 
+    def create_manual_large_format_batch(self, job_id: str) -> None:
+        job = next((item for item in self.snapshot.large_format.jobs if item.id == job_id), None)
+        if job is None:
+            self.emit_large_format_activity("batch.error", f"Manual batch requested for unknown large-format job {job_id}.", LogLevel.WARNING)
+            return
+        if job.status != LargeFormatJobStatus.WAITING:
+            self.emit_large_format_activity(
+                "batch.error",
+                f"Manual batch requested for {job.filename}, but only waiting jobs can be forced into an urgent batch.",
+                LogLevel.WARNING,
+            )
+            return
+
+        try:
+            batch = create_layout_batch(self.settings, [job])
+        except RuntimeError as exc:
+            updated_job = replace(
+                job,
+                status=LargeFormatJobStatus.NEEDS_REVIEW,
+                updated_at=now_iso(),
+                notes=str(exc),
+            )
+            self.remember_large_format_job(updated_job)
+            self.snapshot.large_format.last_processed_at = now_iso()
+            self.emit_large_format_activity("batch.validation_failed", str(exc), LogLevel.WARNING)
+            return
+
+        jobs_by_id = {item.id: item for item in self.snapshot.large_format.jobs}
+        output_path = render_batch_pdf(self.settings, batch, jobs_by_id)
+        batch.output_pdf_path = output_path
+        batch.status = LargeFormatBatchStatus.READY
+        batch.updated_at = now_iso()
+        self.remember_large_format_batch(batch)
+        self.remember_large_format_job(replace(job, status=LargeFormatJobStatus.BATCHED, updated_at=now_iso(), batch_id=batch.id))
+        self.snapshot.large_format.last_processed_at = now_iso()
+        self.emit_large_format_activity(
+            "batch.created",
+            f"Created urgent large-format batch {batch.id[-8:]} for {job.filename}. Estimated length {batch.used_length_mm:.0f} mm.",
+        )
+
+        if self.settings.large_format_auto_approve_enabled and batch.waste_percent <= self.settings.large_format_auto_approve_max_waste_percent:
+            self.approve_large_format_batch(batch.id)
+            self.emit_large_format_activity(
+                "batch.auto_approved",
+                f"Auto-approved urgent batch {batch.id[-8:]} because waste {batch.waste_percent:.1f}% is within the {self.settings.large_format_auto_approve_max_waste_percent:.1f}% threshold.",
+            )
+            if self.settings.large_format_auto_send:
+                self.send_large_format_batch(batch.id)
+
     def approve_large_format_batch(self, batch_id: str) -> None:
         batch = next((item for item in self.snapshot.large_format.batches if item.id == batch_id), None)
         if batch is None:
@@ -950,6 +999,12 @@ class WorkerRuntime:
 
         if name == "process_large_format_now":
             self.process_large_format_batches()
+            return
+
+        if name == "create_manual_large_format_batch":
+            job_id = str(command.get("job_id", ""))
+            if job_id:
+                self.create_manual_large_format_batch(job_id)
             return
 
         if name == "approve_large_format_batch":

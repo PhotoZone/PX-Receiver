@@ -98,6 +98,15 @@ export async function processLargeFormatNow() {
   return invoke<WorkerSnapshot>("process_large_format_now");
 }
 
+export async function createManualLargeFormatBatch(jobId: string) {
+  if (!isTauri()) {
+    return defaultSnapshot;
+  }
+
+  const { invoke } = await resolveCore();
+  return invoke<WorkerSnapshot>("create_manual_large_format_batch", { jobId });
+}
+
 export async function approveLargeFormatBatch(batchId: string) {
   if (!isTauri()) {
     return defaultSnapshot;

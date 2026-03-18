@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { defaultSnapshot } from "@/lib/defaults";
-import { approveLargeFormatBatch, checkForAppUpdate, deleteLargeFormatJob, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, processLargeFormatNow, recoverRemoteJob, regenerateLargeFormatBatch, removeLargeFormatBatch, reprintJob, reprintWorkerScanLabel, relaunchApp, restartWorker, resumePolling, retryJob, scanLargeFormatNow, sendLargeFormatBatch, updateSettings } from "@/lib/tauri";
+import { approveLargeFormatBatch, checkForAppUpdate, createManualLargeFormatBatch, deleteLargeFormatJob, downloadLatestAppBuild, forceCompleteWorkerJob, getSnapshot, listenToWorkerEvents, pausePolling, pollNow, printWorkerLabel, printWorkerPackingSlip, processLargeFormatNow, recoverRemoteJob, regenerateLargeFormatBatch, removeLargeFormatBatch, reprintJob, reprintWorkerScanLabel, relaunchApp, restartWorker, resumePolling, retryJob, scanLargeFormatNow, sendLargeFormatBatch, updateSettings } from "@/lib/tauri";
 import type { AppUpdateStatus, JobRecord, LargeFormatBatch, LogRecord, ScanRecord, WorkerEvent, WorkerSettings, WorkerSnapshot } from "@/types/app";
 
 function reduceEvent(snapshot: WorkerSnapshot, event: WorkerEvent): WorkerSnapshot {
@@ -107,6 +107,7 @@ export function useWorkerStore() {
     refreshNow: () => updateSnapshot(pollNow()),
     scanLargeFormatNow: () => updateSnapshot(scanLargeFormatNow()),
     processLargeFormatNow: () => updateSnapshot(processLargeFormatNow()),
+    createManualLargeFormatBatch: (jobId: string) => updateSnapshot(createManualLargeFormatBatch(jobId)),
     approveLargeFormatBatch: (batchId: string) => updateSnapshot(approveLargeFormatBatch(batchId)),
     sendLargeFormatBatch: (batchId: string) => updateSnapshot(sendLargeFormatBatch(batchId)),
     regenerateLargeFormatBatch: (batchId: string) => updateSnapshot(regenerateLargeFormatBatch(batchId)),
@@ -141,6 +142,7 @@ export function useWorkerStore() {
     refreshNow: () => Promise<WorkerSnapshot>;
     scanLargeFormatNow: () => Promise<WorkerSnapshot>;
     processLargeFormatNow: () => Promise<WorkerSnapshot>;
+    createManualLargeFormatBatch: (jobId: string) => Promise<WorkerSnapshot>;
     approveLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
     sendLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;
     regenerateLargeFormatBatch: (batchId: string) => Promise<WorkerSnapshot>;

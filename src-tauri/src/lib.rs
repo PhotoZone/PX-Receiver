@@ -311,6 +311,19 @@ fn process_large_format_now(state: State<'_, RuntimeState>) -> Result<WorkerSnap
 }
 
 #[tauri::command]
+fn create_manual_large_format_batch(
+    state: State<'_, RuntimeState>,
+    job_id: String,
+) -> Result<WorkerSnapshot, String> {
+    state.with_worker(|worker| worker.create_manual_large_format_batch(job_id).map_err(|err| err.to_string()))?;
+    state
+        .store
+        .lock()
+        .map_err(|err| err.to_string())
+        .map(|store| store.snapshot.clone())
+}
+
+#[tauri::command]
 fn approve_large_format_batch(
     state: State<'_, RuntimeState>,
     batch_id: String,
@@ -1134,6 +1147,7 @@ pub fn run() {
             poll_worker_now,
             scan_large_format_now,
             process_large_format_now,
+            create_manual_large_format_batch,
             approve_large_format_batch,
             send_large_format_batch,
             regenerate_large_format_batch,

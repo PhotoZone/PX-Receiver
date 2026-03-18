@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { openPathInOs, toLocalAssetPreviewUrl } from "@/lib/tauri";
 import { useWorkerStoreContext } from "@/lib/use-worker-store";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -447,6 +447,7 @@ export function LargeFormatView() {
     isPending,
     scanLargeFormatNow,
     processLargeFormatNow,
+    createManualLargeFormatBatch,
     approveLargeFormatBatch,
     removeLargeFormatBatch,
     deleteLargeFormatJob,
@@ -576,6 +577,16 @@ export function LargeFormatView() {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <Pill value={job.status} kind="job" />
+                    <button
+                      type="button"
+                      disabled={isPending || job.status !== "waiting"}
+                      onClick={() => void createManualLargeFormatBatch(job.id)}
+                      className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-full border border-cyan-500/20 bg-cyan-500/10 text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-40"
+                      aria-label={`Create urgent batch for ${job.filename}`}
+                      title="Create urgent batch"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       type="button"
                       disabled={isPending || job.status === "ready"}

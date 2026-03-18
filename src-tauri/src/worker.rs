@@ -479,6 +479,7 @@ enum WorkerCommand {
     PollNow,
     ScanLargeFormatNow,
     ProcessLargeFormatNow,
+    CreateManualLargeFormatBatch { job_id: String },
     ApproveLargeFormatBatch { batch_id: String },
     SendLargeFormatBatch { batch_id: String },
     RegenerateLargeFormatBatch { batch_id: String },
@@ -594,6 +595,10 @@ impl WorkerHandle {
 
     pub fn process_large_format_now(&self) -> Result<(), WorkerError> {
         self.send(WorkerCommand::ProcessLargeFormatNow)
+    }
+
+    pub fn create_manual_large_format_batch(&self, job_id: String) -> Result<(), WorkerError> {
+        self.send(WorkerCommand::CreateManualLargeFormatBatch { job_id })
     }
 
     pub fn approve_large_format_batch(&self, batch_id: String) -> Result<(), WorkerError> {
