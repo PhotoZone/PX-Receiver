@@ -20,6 +20,7 @@ MAX_EXACT_LAYOUT_ITEMS = 12
 A_SERIES_SIZE_TOLERANCE_MM = 8.0
 A_SERIES_PANEL_WIDTH_MM = 841.0
 A_SERIES_PANEL_HEIGHT_MM = 594.0
+A_SERIES_PANEL_TARGET_MAX_LENGTH_MM = 1000.0
 A_SERIES_SPECS_MM = {
     "a1": (841.0, 594.0),
     "a2": (594.0, 420.0),
@@ -491,6 +492,18 @@ def _build_a_series_panel_layout(
     placements: list[LargeFormatPlacement] = []
     total_area = 0.0
     panel_count = 0
+    max_panels = max(
+        1,
+        int(
+            (
+                min(max_batch_length_mm, A_SERIES_PANEL_TARGET_MAX_LENGTH_MM)
+                - settings.large_format_leader_mm
+                - settings.large_format_trailer_mm
+                + settings.large_format_gap_mm
+            )
+            // (A_SERIES_PANEL_HEIGHT_MM + settings.large_format_gap_mm)
+        ),
+    )
     sort_order = 0
 
     def append_panel(panel_jobs: list[LargeFormatJob], size: str, cursor_y: float) -> None:
@@ -536,6 +549,22 @@ def _build_a_series_panel_layout(
     for size, capacity in panel_recipes:
         jobs_for_size = grouped_jobs[size]
         for index in range(0, len(jobs_for_size), capacity):
+            if panel_count >= max_panels:
+                if placements:
+                    used_length_mm = round_mm(
+                        settings.large_format_leader_mm
+                        + panel_count * A_SERIES_PANEL_HEIGHT_MM
+                        + max(0, panel_count - 1) * settings.large_format_gap_mm
+                        + settings.large_format_trailer_mm
+                    )
+                    roll_width_mm = inches_to_mm(settings.large_format_roll_width_in)
+                    waste_percent = round(
+                        0 if used_length_mm <= 0 else ((roll_width_mm * used_length_mm - total_area) / (roll_width_mm * used_length_mm)) * 100,
+                        1,
+                    )
+                    return "a-series-panels", placements, used_length_mm, waste_percent
+                raise RuntimeError("No large-format jobs fit within the current batch constraints.")
+
             panel_jobs = jobs_for_size[index:index + capacity]
             projected_length_mm = settings.large_format_leader_mm
             if panel_count:
