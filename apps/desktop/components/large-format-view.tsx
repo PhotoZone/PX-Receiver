@@ -367,6 +367,33 @@ function formatMediaType(value: string) {
   return value;
 }
 
+function formatLargeFormatSize(widthIn?: number | null, heightIn?: number | null) {
+  if (!widthIn || !heightIn) {
+    return "Needs physical size review";
+  }
+
+  const longest = Math.max(widthIn, heightIn);
+  const shortest = Math.min(widthIn, heightIn);
+  const tolerance = 0.2;
+  const isoMatches = [
+    { label: "A1", longEdge: 33.1, shortEdge: 23.4 },
+    { label: "A2", longEdge: 23.4, shortEdge: 16.5 },
+    { label: "A3", longEdge: 16.5, shortEdge: 11.7 },
+  ];
+
+  const isoMatch = isoMatches.find(
+    (candidate) =>
+      Math.abs(candidate.longEdge - longest) <= tolerance &&
+      Math.abs(candidate.shortEdge - shortest) <= tolerance,
+  );
+
+  if (isoMatch) {
+    return isoMatch.label;
+  }
+
+  return `${widthIn.toFixed(2)}" × ${heightIn.toFixed(2)}"`;
+}
+
 function getLargeFormatSourceAppearance(source: string | null | undefined) {
   const key = (source ?? "").trim().toLowerCase();
   if (key === "photozone") {
@@ -566,11 +593,12 @@ export function LargeFormatView() {
                         >
                           {sourceAppearance.label}
                         </span>
-                        <span className="text-xs font-medium text-slate-300">
-                          {job.widthIn && job.heightIn ? `${job.widthIn.toFixed(2)}" × ${job.heightIn.toFixed(2)}"` : "Needs physical size review"}
-                        </span>
-                        <span className="text-xs font-medium text-slate-300">{formatMediaType(job.mediaType)}</span>
                         {job.needsBorder ? <span className="text-xs font-medium text-slate-400">Auto border</span> : null}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-300">
+                        <span>{formatLargeFormatSize(job.widthIn, job.heightIn)}</span>
+                        <span className="text-slate-500">·</span>
+                        <span>{formatMediaType(job.mediaType)}</span>
                       </div>
                       {job.notes ? <p className="mt-1 text-xs text-amber-200">{job.notes}</p> : null}
                     </div>
