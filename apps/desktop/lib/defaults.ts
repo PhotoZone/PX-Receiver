@@ -14,6 +14,7 @@ export const defaultSnapshot: WorkerSnapshot = {
     apiToken: "",
     shipstationApiKey: "",
     slackWebhookUrl: "",
+    scannerMode: "auto",
     machineAuthToken: "",
     pollingIntervalSeconds: 20,
     downloadDirectory: "~/Downloads/px-orders",

@@ -20,6 +20,7 @@ export type WorkerSettings = {
   apiToken: string;
   shipstationApiKey: string;
   slackWebhookUrl?: string;
+  scannerMode?: "auto" | "mac_hid" | "windows_com" | "disabled";
   machineAuthToken?: string;
   pollingIntervalSeconds: number;
   downloadDirectory: string;

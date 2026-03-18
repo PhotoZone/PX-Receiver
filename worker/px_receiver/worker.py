@@ -88,6 +88,16 @@ class WorkerRuntime:
             on_scan=self.handle_scan,
             on_status=self.handle_scanner_status,
             on_log=self.emit_log,
+            scanner_mode=self.settings.scanner_mode,
+        )
+
+    def rebuild_scanner(self) -> None:
+        self.scanner.stop()
+        self.scanner = ScannerService(
+            on_scan=self.handle_scan,
+            on_status=self.handle_scanner_status,
+            on_log=self.emit_log,
+            scanner_mode=self.settings.scanner_mode,
         )
 
     def is_mock_job(self, job: JobRecord) -> bool:
@@ -932,6 +942,7 @@ class WorkerRuntime:
                 api_token=payload.get("apiToken", self.settings.api_token),
                 shipstation_api_key=payload.get("shipstationApiKey", self.settings.shipstation_api_key),
                 slack_webhook_url=payload.get("slackWebhookUrl", self.settings.slack_webhook_url),
+                scanner_mode=payload.get("scannerMode", self.settings.scanner_mode),
                 machine_auth_token=payload.get("machineAuthToken", self.settings.machine_auth_token),
                 polling_interval_seconds=int(payload.get("pollingIntervalSeconds", self.settings.polling_interval_seconds)),
                 download_directory=payload.get("downloadDirectory", self.settings.download_directory),
@@ -965,6 +976,8 @@ class WorkerRuntime:
             )
             self.snapshot.settings = self.settings
             self.configure_backend()
+            self.rebuild_scanner()
+            self.scanner.start()
             save_settings(self.config_path, self.settings)
             if was_using_mock_backend and not self.settings.use_mock_backend:
                 self.snapshot.jobs = self.purge_mock_jobs(self.snapshot.jobs, persist_changes=True)

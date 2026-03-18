@@ -173,11 +173,13 @@ class ScannerService:
         on_scan: ScanCallback,
         on_status: StatusCallback,
         on_log: LogCallback,
+        scanner_mode: str = "auto",
         baudrate: int = 9600,
     ) -> None:
         self.on_scan = on_scan
         self.on_status = on_status
         self.on_log = on_log
+        self.scanner_mode = str(scanner_mode or "auto").strip().lower() or "auto"
         self.baudrate = baudrate
         self.delegate: WindowsSerialScannerListener | Any | None = None
 
@@ -185,7 +187,16 @@ class ScannerService:
         if self.delegate is not None:
             return
 
-        if sys.platform == "win32":
+        if self.scanner_mode == "disabled":
+            self.on_status("disabled", None)
+            self.on_log(LogLevel.INFO, "Scanner disabled by configuration", "scanner")
+            return
+
+        forced_mode = self.scanner_mode
+        use_windows_com = forced_mode == "windows_com" or (forced_mode == "auto" and sys.platform == "win32")
+        use_mac_hid = forced_mode == "mac_hid" or (forced_mode == "auto" and sys.platform == "darwin")
+
+        if use_windows_com:
             self.on_log(LogLevel.INFO, "Scanner platform selected: Windows COM-port listener", "scanner")
             self.delegate = WindowsSerialScannerListener(
                 on_scan=self.on_scan,
@@ -193,7 +204,7 @@ class ScannerService:
                 on_log=self.on_log,
                 baudrate=self.baudrate,
             )
-        elif sys.platform == "darwin":
+        elif use_mac_hid:
             from px_receiver.services.scanner_mac import MacHIDScannerListener
 
             self.on_log(LogLevel.INFO, "Scanner platform selected: macOS HID keyboard listener", "scanner")
@@ -206,7 +217,7 @@ class ScannerService:
             self.on_status("unavailable", None)
             self.on_log(
                 LogLevel.WARNING,
-                f"Scanner support is only available on Windows COM ports or macOS HID mode. Unsupported platform: {sys.platform}",
+                f"Scanner support is only available on Windows COM ports or macOS HID mode. Current mode/platform: {self.scanner_mode}/{sys.platform}",
                 "scanner",
             )
             return

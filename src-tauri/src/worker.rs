@@ -102,6 +102,8 @@ pub struct WorkerSettings {
     pub shipstation_api_key: String,
     #[serde(default)]
     pub slack_webhook_url: String,
+    #[serde(default = "default_scanner_mode")]
+    pub scanner_mode: String,
     #[serde(default)]
     pub machine_auth_token: String,
     pub polling_interval_seconds: u64,
@@ -169,6 +171,7 @@ impl Default for WorkerSettings {
             api_token: String::new(),
             shipstation_api_key: String::new(),
             slack_webhook_url: String::new(),
+            scanner_mode: default_scanner_mode(),
             machine_auth_token: String::new(),
             polling_interval_seconds: 20,
             download_directory: "~/Downloads/px-orders".into(),
@@ -201,6 +204,10 @@ impl Default for WorkerSettings {
             use_mock_backend: true,
         }
     }
+}
+
+fn default_scanner_mode() -> String {
+    "auto".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

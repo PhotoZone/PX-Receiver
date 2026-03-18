@@ -539,6 +539,20 @@ export function SettingsView() {
           <input className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40" value={formState.machineName} onChange={(event) => updateField("machineName", event.target.value)} />
         </label>
 
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-200">Scanner mode</span>
+          <select
+            className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/40"
+            value={formState.scannerMode || "auto"}
+            onChange={(event) => updateField("scannerMode", event.target.value as WorkerSettings["scannerMode"])}
+          >
+            <option value="auto">Auto detect</option>
+            <option value="mac_hid">macOS HID keyboard</option>
+            <option value="windows_com">Windows COM scanner</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </label>
+
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium text-slate-200">Store route</span>

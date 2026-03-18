@@ -87,6 +87,7 @@ class WorkerSettings:
     api_token: str = ""
     shipstation_api_key: str = ""
     slack_webhook_url: str = ""
+    scanner_mode: str = "auto"
     machine_auth_token: str = ""
     polling_interval_seconds: int = 20
     download_directory: str = "~/Downloads/px-orders"

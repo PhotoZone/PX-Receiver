@@ -25,6 +25,39 @@ def _get_headers(api_key: str | None = None) -> dict[str, str]:
     }
 
 
+def _normalized_error_detail(raw_detail: str, fallback: str) -> str:
+    detail = str(raw_detail or "").strip()
+    if not detail:
+        return fallback
+
+    try:
+        payload = json.loads(detail)
+    except json.JSONDecodeError:
+        return detail
+
+    messages: list[str] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, dict):
+            message = str(value.get("message") or "").strip()
+            if message:
+                messages.append(message)
+            nested_errors = value.get("errors")
+            if isinstance(nested_errors, list):
+                for nested in nested_errors:
+                    collect(nested)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(payload)
+    if messages:
+        return " | ".join(dict.fromkeys(messages))
+
+    top_level_message = str(payload.get("message") or payload.get("error") or "").strip() if isinstance(payload, dict) else ""
+    return top_level_message or detail
+
+
 def _request_json(method: str, url: str, payload: dict | None = None, *, api_key: str | None = None) -> dict:
     body = None if payload is None else json.dumps(payload).encode()
     req = request.Request(url, data=body, headers=_get_headers(api_key), method=method)
@@ -34,7 +67,8 @@ def _request_json(method: str, url: str, payload: dict | None = None, *, api_key
             return json.loads(raw) if raw else {}
     except error.HTTPError as exc:
         detail = exc.read().decode(errors="ignore")
-        raise RuntimeError(f"ShipStation request failed ({exc.code}): {detail or exc.reason}") from exc
+        normalized = _normalized_error_detail(detail, str(exc.reason))
+        raise RuntimeError(f"ShipStation request failed ({exc.code}): {normalized}") from exc
     except error.URLError as exc:
         raise RuntimeError(f"ShipStation request failed: {exc.reason}") from exc
 
@@ -62,7 +96,8 @@ def _download_binary(url: str, *, api_key: str | None = None) -> bytes:
             return response.read()
     except error.HTTPError as exc:
         detail = exc.read().decode(errors="ignore")
-        raise RuntimeError(f"ShipStation label download failed ({exc.code}): {detail or exc.reason}") from exc
+        normalized = _normalized_error_detail(detail, str(exc.reason))
+        raise RuntimeError(f"ShipStation label download failed ({exc.code}): {normalized}") from exc
     except error.URLError as exc:
         raise RuntimeError(f"ShipStation label download failed: {exc.reason}") from exc
 
