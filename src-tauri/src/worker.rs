@@ -61,7 +61,7 @@ pub enum LogLevel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum LargeFormatJobStatus {
     Waiting,
     NeedsReview,
@@ -71,7 +71,7 @@ pub enum LargeFormatJobStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum LargeFormatBatchStatus {
     Pending,
     Ready,
