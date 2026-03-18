@@ -8,6 +8,7 @@ from typing import Any
 from urllib import error, parse, request
 
 from px_receiver.models import AssetKind, AssetRecord, JobItemRecord, JobRecord, JobStatus, PrintInstructions, WorkerSettings, now_iso
+from px_receiver.services.http import urlopen_with_tls
 
 
 class BackendClient(ABC):
@@ -297,7 +298,7 @@ class HttpBackendClient(BackendClient):
             method=method,
         )
         try:
-            with request.urlopen(req, timeout=20) as response:
+            with urlopen_with_tls(req, timeout=20) as response:
                 raw = response.read().decode()
                 return json.loads(raw) if raw else {}
         except error.HTTPError as exc:

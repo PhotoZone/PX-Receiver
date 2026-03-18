@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib import error, parse, request
 import json
 
+from px_receiver.services.http import urlopen_with_tls
+
 
 def _get_base_url(api_base: str | None = None) -> str:
     return (api_base or os.getenv("SHIPSTATION_API_BASE") or "https://api.shipstation.com").rstrip("/")
@@ -27,7 +29,7 @@ def _request_json(method: str, url: str, payload: dict | None = None, *, api_key
     body = None if payload is None else json.dumps(payload).encode()
     req = request.Request(url, data=body, headers=_get_headers(api_key), method=method)
     try:
-        with request.urlopen(req, timeout=20) as response:
+        with urlopen_with_tls(req, timeout=20) as response:
             raw = response.read().decode()
             return json.loads(raw) if raw else {}
     except error.HTTPError as exc:
@@ -56,7 +58,7 @@ def _normalize_label_response(payload: dict, *, api_key: str | None = None) -> b
 def _download_binary(url: str, *, api_key: str | None = None) -> bytes:
     req = request.Request(url, headers=_get_headers(api_key), method="GET")
     try:
-        with request.urlopen(req, timeout=20) as response:
+        with urlopen_with_tls(req, timeout=20) as response:
             return response.read()
     except error.HTTPError as exc:
         detail = exc.read().decode(errors="ignore")

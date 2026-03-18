@@ -4,6 +4,7 @@ import json
 from urllib import request
 
 from px_receiver.models import JobRecord, WorkerSettings
+from px_receiver.services.http import urlopen_with_tls
 
 
 def notify_order_failure(
@@ -35,6 +36,6 @@ def notify_order_failure(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with request.urlopen(req, timeout=10) as response:  # noqa: S310
+    with urlopen_with_tls(req, timeout=10) as response:  # noqa: S310
         if response.status >= 400:
             raise RuntimeError(f"Slack webhook returned HTTP {response.status}")
