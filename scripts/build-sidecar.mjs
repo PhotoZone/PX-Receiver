@@ -8,6 +8,7 @@ const repoRoot = resolve(__dirname, "..");
 const workerRoot = join(repoRoot, "worker");
 const binariesRoot = join(repoRoot, "src-tauri", "binaries");
 const isWindows = process.platform === "win32";
+const isMac = process.platform === "darwin";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -54,6 +55,22 @@ function resolveTargetBinaryName() {
   throw new Error(`Unsupported sidecar target for ${process.platform}/${process.arch}`);
 }
 
+function resolveMacTargetArchitecture() {
+  if (!isMac) {
+    return null;
+  }
+
+  if (process.arch === "arm64") {
+    return "arm64";
+  }
+
+  if (process.arch === "x64") {
+    return "x86_64";
+  }
+
+  throw new Error(`Unsupported macOS sidecar architecture: ${process.arch}`);
+}
+
 const python = resolvePython();
 const distName = isWindows ? "px-worker.exe" : "px-worker";
 const distBinary = join(workerRoot, "dist", distName);
@@ -67,6 +84,14 @@ const pyInstallerArgs = ["-m", "PyInstaller", "--noconfirm", "--clean", "--onefi
 // Keep stdio attached on Windows: the Tauri host reads worker events from
 // stdout/stderr, and CREATE_NO_WINDOW on the Rust side already suppresses the
 // visible console window for packaged builds.
+if (isMac) {
+  pyInstallerArgs.push("--target-architecture", resolveMacTargetArchitecture());
+
+  const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
+  if (signingIdentity) {
+    pyInstallerArgs.push("--codesign-identity", signingIdentity);
+  }
+}
 pyInstallerArgs.push("--name", "px-worker", "px_receiver/__main__.py");
 run(
   python,
