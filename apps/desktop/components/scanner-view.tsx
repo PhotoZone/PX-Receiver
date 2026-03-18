@@ -155,9 +155,9 @@ export function ScannerView() {
     }
   };
 
-  const winkScans = recentScans.filter((scan) => getScanAppearance(scan).key === "wink");
-  const photoZoneScans = recentScans.filter((scan) => getScanAppearance(scan).key === "photozone");
-  const postSnapScans = recentScans.filter((scan) => getScanAppearance(scan).key === "postsnap");
+  const winkScans = recentScans.filter((scan) => getScanAppearance(scan).key === "wink").slice(0, 15);
+  const photoZoneScans = recentScans.filter((scan) => getScanAppearance(scan).key === "photozone").slice(0, 15);
+  const postSnapScans = recentScans.filter((scan) => getScanAppearance(scan).key === "postsnap").slice(0, 15);
 
   return (
     <div className="space-y-6">
